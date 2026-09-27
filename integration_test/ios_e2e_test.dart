@@ -31,17 +31,31 @@ Future<String> _modelsDir() async {
   return '${docs.path}/models';
 }
 
+/// Caminhos de fallback do host (o iOS Simulator partilha o filesystem do
+/// Mac — os modelos pré-descarregados em dev servem de fonte sem cópias).
+const String _hostModels = '/Volumes/Ext2TB/tmp-models';
+
+/// Resolve um modelo: primeiro o instalado na app (`<documents>/models/...`),
+/// depois o fallback do host. `null` = não disponível (o teste salta).
+Future<String?> _modelPath(String rel, String hostFallback) async {
+  final dir = await _modelsDir();
+  final inApp = '$dir/$rel';
+  if (File(inApp).existsSync()) return inApp;
+  if (File(hostFallback).existsSync()) return hostFallback;
+  return null;
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('Laya decide em dispositivo (valores do oráculo)', (t) async {
-    final dir = await _modelsDir();
-    final model = '$dir/laya-typed-onnx/model_q4.onnx';
-    final tokenizer = '$dir/laya-typed-onnx/tokenizer.json';
-    if (!File(model).existsSync()) {
-      // Sem modelo instalado: regista e passa (não é falha do código).
+    final model = await _modelPath('laya-typed-onnx/model_q4.onnx',
+        '$_hostModels/laya/model_q4.onnx');
+    final tokenizer = await _modelPath('laya-typed-onnx/tokenizer.json',
+        '$_hostModels/laya/tokenizer.json');
+    if (model == null || tokenizer == null) {
       // ignore: avoid_print
-      print('SKIP laya: modelo não instalado em $model');
+      print('SKIP laya: modelo não instalado');
       return;
     }
     final engine = LayaOnnxEngine();
@@ -70,11 +84,11 @@ void main() {
   });
 
   testWidgets('MiniCPM5-2B gera texto com a receita anti-loop', (t) async {
-    final dir = await _modelsDir();
-    final model = '$dir/minicpm5-q4km/MiniCPM5-2B-Q4_K_M.gguf';
-    if (!File(model).existsSync()) {
+    final model = await _modelPath('minicpm5-q4km/MiniCPM5-2B-Q4_K_M.gguf',
+        '$_hostModels/MiniCPM5-2B-Q4_K_M.gguf');
+    if (model == null) {
       // ignore: avoid_print
-      print('SKIP llm: modelo não instalado em $model');
+      print('SKIP llm: modelo não instalado');
       return;
     }
     final LlmEngine engine = LlamaFfiEngine();
@@ -105,11 +119,11 @@ void main() {
   });
 
   testWidgets('ToolLoop completa SEM loop (guardrails)', (t) async {
-    final dir = await _modelsDir();
-    final model = '$dir/minicpm5-q4km/MiniCPM5-2B-Q4_K_M.gguf';
-    if (!File(model).existsSync()) {
+    final model = await _modelPath('minicpm5-q4km/MiniCPM5-2B-Q4_K_M.gguf',
+        '$_hostModels/MiniCPM5-2B-Q4_K_M.gguf');
+    if (model == null) {
       // ignore: avoid_print
-      print('SKIP toolloop: modelo não instalado em $model');
+      print('SKIP toolloop: modelo não instalado');
       return;
     }
     final LlmEngine engine = LlamaFfiEngine();
