@@ -21,10 +21,6 @@ command -v flutter >/dev/null || die "flutter não está no PATH" \
   "instala o Flutter 3.47+ e adiciona flutter/bin ao PATH"
 
 NEED_ANDROID=0; NEED_IOS=0
-case "$(uname -s)" in
-  Darwin) NEED_IOS=1 ;;
-  Linux)  NEED_ANDROID=1 ;;
-esac
 
 # Presença de artefactos nativos
 if [ -f "android/app/src/main/jniLibs/arm64-v8a/libllama.so" ]; then
@@ -33,11 +29,13 @@ else
   miss "jniLibs Android — necessário para flutter build apk"
   NEED_ANDROID=1
 fi
-if [ "$(uname -s)" = "Darwin" ] && [ -f "ios/pods/llama_ffi/llama.xcframework/Info.plist" ]; then
-  ok "llama.xcframework iOS (device + simulador)"
-elif [ "$(uname -s)" = "Darwin" ]; then
-  miss "llama.xcframework iOS — necessário para flutter build ios"
-  NEED_IOS=1
+if [ "$(uname -s)" = "Darwin" ]; then
+  if [ -f "ios/pods/llama_ffi/llama.xcframework/Info.plist" ]; then
+    ok "llama.xcframework iOS (device + simulador)"
+  else
+    miss "llama.xcframework iOS — necessário para flutter build ios"
+    NEED_IOS=1
+  fi
 fi
 
 if [ "$CHECK_ONLY" = "--check" ]; then
