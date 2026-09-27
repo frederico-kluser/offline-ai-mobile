@@ -1074,6 +1074,15 @@ class LlamaFfiEngine implements LlmEngine {
     return ctrl.stream;
   }
 
+  /// Aborta a geração em curso (se existir). Ao contrário do cancelamento do
+  /// stream, o ouvinte ATIVO recebe um [GenEnd] com `stopReason: 'aborted'`.
+  void abort() {
+    final link = _active;
+    if (link != null && !link.done.isCompleted) {
+      _commands?.send({'cmd': 'abort', 'id': link.id});
+    }
+  }
+
   // ------------------------------------------------------ countTokens -----
   @override
   Future<int> countTokens(String text) async {
