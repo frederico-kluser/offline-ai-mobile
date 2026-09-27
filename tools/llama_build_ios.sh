@@ -8,7 +8,7 @@ TAG="b11217"          # mesma tag do build Android (tem MiniCPM5 + parser minicp
 MIN_IOS="16.0"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/llama.cpp"
-OUT="$HERE/../ios/Frameworks"
+OUT="$HERE/../ios/pods/llama_ffi"
 
 if [ ! -d "$SRC" ]; then
   git clone --depth 1 --branch "$TAG" https://github.com/ggml-org/llama.cpp "$SRC"
