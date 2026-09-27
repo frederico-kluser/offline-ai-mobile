@@ -15,9 +15,13 @@ extension QTypeWire on QType {
         QType.score => 'score',
       };
 
-  /// Índice `qtype` do tensor de entrada do ONNX (confirmar contra o artefacto
-  /// em tools/specs/laya-engine-spec.md).
-  int get onnxIndex => index;
+  /// Índice `qtype` do tensor de entrada do ONNX (confirmado no grafo do
+  /// artefacto m1rhan/laya-typed-decisions-ONNX: 0=choice, 1=score, 2=noul).
+  int get onnxIndex => switch (this) {
+        QType.choice => 0,
+        QType.score => 1,
+        QType.noul => 2,
+      };
 
   static QType fromWire(String s) => QType.values.firstWhere(
         (q) => q.wire == s,

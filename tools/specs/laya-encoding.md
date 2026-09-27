@@ -73,7 +73,9 @@ Regras exatas (portes literais de `@receptron/laya/dist/sequence.js` e `laya/com
    - `score`: `"level i: <nível>"` para `i = 0..k-1`.
    - `noul`: `"false: <crit>"` e `"true: <crit>"`, pela por ordem `[false, true]` — **`p[1]` é
      P(true)**; defaults `"no, the statement does not hold"` / `"yes, the statement holds"` quando o
-     critério é nulo/vazio.
+     critério é nulo/vazio. ⚠️ O domínio `NoulQuestion` pré-preenche `trueCriteria='sim'` /
+     `falseCriteria='não'` (nunca vazios): quem chama com os defaults do domínio envia esses textos
+     como critérios; para reproduzir os defaults da referência têm de ser passados explicitamente.
    Cada opção: `optIds[i] = [maskId] + encode(" " + opt)[:48]` (espaço à frente + cap de 48 tokens).
 4. **Orçamento do head = 192 tokens** (`head_max_len`):
    `optBudget = 192 − Σ|optIds|`; se `optBudget < 16`, encolhe todas as opções uniformemente:
@@ -229,3 +231,20 @@ logits e respostas decodificadas (4 dp, T clamped):
 `[50281, 22122, 1953, 27, 6758, 2285, 22139, 436, 32, 50282, 50284, 33484, …]`, markers `[10, 21, 29]`.)
 Os 3 exemplos completos (tokens + logits + respostas) foram gerados pelo oráculo e usados para
 validar o tokenizer e o decode Dart token-a-token.
+
+### 9.1 Resultado da validação executada (2026-09-27)
+
+- **Tokenizer Dart vs HF `tokenizers` 0.23**: 25/25 casos com ids idênticos (ASCII, acentos PT/ES,
+  decompostos NFC, runs de espaços/tabs/newlines, contrações, CJK, added tokens
+  `|||EMAIL_ADDRESS|||`, `[MASK]` literal, palavras longas) e 25/25 no `decode` (com
+  `skip_special_tokens` como no HF).
+- **Engine Dart vs oráculo Python (`onnxruntime` 1.30 CPU) sobre o `model_q4.onnx` real**: 8/8
+  perguntas (3 fixtures: choice/noul/score, EN+PT) com `probabilities`, `choice`, `score`, `noul`,
+  `confidence`, `answer_confidence`, `act_probability` e `input_tokens` **idênticos** (4 dp). A
+  sessão `onnxruntime_v2` (ORT 1.22 desktop, plugin Linux) carregou o artefacto em ~0.8 s — o
+  caminho §8.1 não foi acionado. O mesmo teste validou `StateError` em `decide()` sem `load()` e o
+  `unload()` limpo. (O teste temporário foi removido depois da verificação; reproduzir com as
+  fixtures acima.)
+- Corrida via `flutter test` (o pacote `onnxruntime_v2` importa `package:flutter/services.dart`,
+  logo o `dart run` puro não chega); em device Android a verificação obrigatória continua por fazer
+  (§8.2).

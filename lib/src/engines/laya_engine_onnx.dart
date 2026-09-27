@@ -123,6 +123,7 @@ class LayaOnnxEngine implements LayaEngine {
     final reply = ReceivePort();
     final ack = await _request(
       reply,
+      commands,
       _LoadCmd(
         modelPath: modelPath,
         tokenizerPath: tokenizerPath,
@@ -142,13 +143,15 @@ class LayaOnnxEngine implements LayaEngine {
 
   @override
   Future<LayaResponse> decide(LayaRequest request) async {
-    if (!_ready || _commands == null) {
+    final commands = _commands;
+    if (!_ready || commands == null) {
       throw StateError(
           'LayaOnnxEngine: decide() sem motor carregado. ${_loadError ?? 'Chame load() primeiro.'}');
     }
     final reply = ReceivePort();
     final result = await _request(
       reply,
+      commands,
       _DecideCmd(request: request, reply: reply.sendPort),
     );
     reply.close();
@@ -170,7 +173,7 @@ class LayaOnnxEngine implements LayaEngine {
       _closing = true;
       try {
         final reply = ReceivePort();
-        await _request(reply, _UnloadCmd(reply: reply.sendPort))
+        await _request(reply, commands, _UnloadCmd(reply: reply.sendPort))
             .timeout(const Duration(seconds: 10));
         reply.close();
       } catch (_) {
@@ -179,14 +182,16 @@ class LayaOnnxEngine implements LayaEngine {
       _closing = false;
     }
     for (final c in _inflight.values) {
-      if (!c.isCompleted) c.completeError(StateError('LayaOnnxEngine: unload()'));
+      if (!c.isCompleted) {
+        c.complete(const _Err('LayaOnnxEngine: unload()'));
+      }
     }
     _inflight.clear();
     isolate?.kill(priority: Isolate.immediate);
     _loadError = null;
   }
 
-  Future<Object?> _request(ReceivePort port, _Cmd cmd) {
+  Future<Object?> _request(ReceivePort port, SendPort to, _Cmd cmd) {
     final id = _nextId++;
     final completer = Completer<Object?>();
     _inflight[id] = completer;
@@ -195,7 +200,7 @@ class LayaOnnxEngine implements LayaEngine {
       final c = _inflight.remove(entry);
       if (c != null && !c.isCompleted) c.complete(message['result']);
     });
-    _commands!.send(_Envelope(id, cmd));
+    to.send(_Envelope(id, cmd));
     return completer.future;
   }
 }

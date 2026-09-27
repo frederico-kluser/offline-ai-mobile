@@ -1,10 +1,9 @@
 /// Injeção simples de dependências da UI (singleton leve).
 ///
-/// Os motores concretos (`LlamaFfiEngine`, `LayaOnnxEngine`) são injetados via
-/// factories: enquanto os ficheiros `llm_engine_llama.dart` /
-/// `laya_engine_onnx.dart` não existirem, as factories lançam
-/// [UnimplementedError] com mensagem clara e a UI mostra SnackBar/banner em vez
-/// de rebentar.
+/// Motores concretos ([LayaOnnxEngine] ligado; `LlmEngineLlama` ligado assim
+/// que `llm_engine_llama.dart` compilar) entram por factories injetáveis; sem
+/// factory, as `ensure*` lançam [UnimplementedError] com mensagem clara e a UI
+/// mostra SnackBar/banner em vez de rebentar.
 library;
 
 import 'dart:io';
@@ -16,6 +15,7 @@ import '../agent/tools.dart';
 import '../engines/laya_engine.dart';
 import '../engines/laya_engine_onnx.dart';
 import '../engines/llm_engine.dart';
+import '../engines/llm_engine_llama.dart';
 import '../services/download_manager.dart';
 import '../services/model_registry.dart';
 import '../domain/llm_config.dart';
@@ -33,10 +33,9 @@ class AppServices {
   /// Gestor de downloads dos artefactos do catálogo.
   late final DownloadManager downloads = DownloadManager();
 
-  /// Factories opcionais de motores (ligadas quando os ficheiros existem).
-  /// O motor Laya já está ligado; o LLM fica por ligar até existir
-  /// `llm_engine_llama.dart` (nesse caso: `llmFactory = () => LlamaFfiEngine()`).
-  LlmEngine Function()? llmFactory;
+  /// Factories dos motores concretos (injetáveis para testes):
+  /// `LlmEngineLlama` (llama.cpp via FFI) e `LayaOnnxEngine` (ONNX Runtime).
+  LlmEngine Function()? llmFactory = LlmEngineLlama.new;
   LayaEngine Function()? layaFactory = LayaOnnxEngine.new;
 
   /// Factory opcional do [ToolLoop] (para testes/injeção).
@@ -178,8 +177,8 @@ class AppServices {
     final factory = llmFactory;
     if (factory == null) {
       throw UnimplementedError(
-          'Motor LLM indisponível: `LlamaFfiEngine` (llm_engine_llama.dart) '
-          'ainda não está ligado a esta build.');
+          'Motor LLM indisponível: `LlmEngineLlama` (llm_engine_llama.dart) '
+          'ainda não está pronto para esta build.');
     }
     return factory();
   }

@@ -50,7 +50,7 @@ DynamicLibrary _openLibc() {
 }
 
 final DynamicLibrary _libc = _openLibc();
-final Pointer<Void> Function(int) _calloc = _libc
+final Pointer<Void> Function(int, int) _calloc = _libc
     .lookupFunction<Pointer<Void> Function(IntPtr, IntPtr),
         Pointer<Void> Function(int, int)>('calloc');
 final void Function(Pointer<Void>) _free = _libc.lookupFunction<
@@ -137,21 +137,21 @@ final class _ContextParams extends Struct {
   @Int32()
   external int flashAttnType;
   @Float()
-  external float ropeFreqBase;
+  external double ropeFreqBase;
   @Float()
-  external float ropeFreqScale;
+  external double ropeFreqScale;
   @Float()
-  external float yarnExtFactor;
+  external double yarnExtFactor;
   @Float()
-  external float yarnAttnFactor;
+  external double yarnAttnFactor;
   @Float()
-  external float yarnBetaFast;
+  external double yarnBetaFast;
   @Float()
-  external float yarnBetaSlow;
+  external double yarnBetaSlow;
   @Uint32()
   external int yarnOrigCtx;
   @Float()
-  external float defragThold;
+  external double defragThold;
   external Pointer<Void> cbEval;
   external Pointer<Void> cbEvalUserData;
   @Int32()
@@ -313,12 +313,11 @@ class _Llama {
             void Function(Pointer<Void>)>('llama_sampler_free') {
     // DRY: obrigatório na tag b11217, mas ligado defensivamente — se faltar,
     // o DRY é ignorado com aviso no GenEnd.error (contrato).
-    initDry = _tryLookup<
+    initDry = _tryLookup(() => lib.lookupFunction<
             Pointer<Void> Function(Pointer<Void>, Float, Float, Int32, Int32,
                 Pointer<Pointer<Uint8>>, IntPtr),
-            Pointer<Void> Function(
-                Pointer<Void>, double, double, int, int, Pointer<Pointer<Uint8>>, int)>(
-        lib, 'llama_sampler_init_dry');
+            Pointer<Void> Function(Pointer<Void>, double, double, int, int,
+                Pointer<Pointer<Uint8>>, int)>('llama_sampler_init_dry'));
   }
 
   final void Function() backendInit;
@@ -368,10 +367,9 @@ class _Llama {
   bool get hasDry => initDry != null;
 }
 
-F? _tryLookup<F extends Function, T extends Function>(
-    DynamicLibrary lib, String name) {
+T? _tryLookup<T extends Function>(T Function() lookup) {
   try {
-    return lib.lookupFunction<F, T>(name);
+    return lookup();
   } catch (_) {
     return null;
   }
@@ -681,7 +679,7 @@ class _Worker {
 
           // Peça de texto, com retenção de sufixo que pode vir a ser o
           // início de '<im_end>' (pode partir-se entre tokens).
-          held += b.piece(tok);
+          held += piece(tok);
           final cut = held.indexOf(endMarker);
           if (cut >= 0) {
             events.send({'e': 'delta', 't': held.substring(0, cut)});
