@@ -14,6 +14,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "dev.offlineai.offline_ai_mobile"

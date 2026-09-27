@@ -29,7 +29,6 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import '../agent/minicpm5_chat.dart' as mc;
 import '../domain/llm_config.dart';
@@ -383,7 +382,7 @@ T? _tryLookup<T extends Function>(T Function() lookup) {
 /// seu próprio port de comandos.
 void _workerMain(SendPort mainPort) {
   final inbox = ReceivePort();
-  mainPort.send(inbox.sendPort);
+  mainPort.send({'ready': inbox.sendPort});
   final worker = _Worker();
   inbox.listen((raw) {
     final m = (raw as Map).cast<String, Object?>();
@@ -431,7 +430,7 @@ class _Worker {
         return;
       }
       _unloadNative(); // nunca ter 2 modelos em memória
-      lib ??= _Llama(DynamicLibrary.open(LlmEngineLlama.libName));
+      lib ??= _Llama(DynamicLibrary.open(LlamaFfiEngine.libName));
       final b = lib!;
       b.backendInit();
 
@@ -611,6 +610,9 @@ class _Worker {
         while (reuse < limit && cachedTokens[reuse] == toks[reuse]) {
           reuse++;
         }
+        // O último token do prompt tem de ser sempre decodificado para
+        // produzir logits — nunca reutilizar o prompt inteiro.
+        if (reuse > toks.length - 1) reuse = toks.length - 1;
         // Aproveitar só o alinhamento de tokens por posição.
         if (reuse > 0) {
           b.memorySeqRm(b.getMemory(ctx), 0, reuse, -1);
@@ -625,6 +627,9 @@ class _Worker {
       for (final t in toks) {
         b.accept(chain, t);
       }
+
+      // Threads por chamada (config re-aplicada).
+      b.setNThreads(ctx, cfg.threads, cfg.threads);
 
       // ---- decode do prompt em chunks, logits só no último token ---------
       final total = toks.length;
@@ -644,7 +649,7 @@ class _Worker {
         b.batchFree(batch);
         if (rc != 0) {
           throw StateError('llama_decode(prompt) devolveu $rc '
-              '(tokens ${i}..${i + len - 1})');
+              '(tokens $i..${i + len - 1})');
         }
         i += len;
         sampleIdx = len - 1; // último token do último chunk = fim do prompt
@@ -709,24 +714,30 @@ class _Worker {
           batch.nTokens = 1;
           final rc = b.decode(ctx, batch);
           b.batchFree(batch);
+          if (rc == 1) {
+            stop = 'max_tokens'; // sem slot de KV — contexto cheio
+            break;
+          }
           if (rc != 0) {
-            stop = 'max_tokens';
-            error = 'llama_decode devolveu $rc (contexto cheio?)';
+            stop = 'error';
+            error = 'llama_decode devolveu $rc a meio da geração';
             break;
           }
           sampleIdx = 0;
 
           await Future<void>.delayed(Duration.zero); // cede p/ abort
           if (abortRequested) {
-            // Emite o que estiver retido (texto pendente legítimo).
-            if (held.isNotEmpty) events.send({'e': 'delta', 't': held});
-            held = '';
             stop = 'aborted';
             break;
           }
         }
-      } else if (held.isNotEmpty) {
+      }
+
+      // Texto ainda retido por causa de um possível '<im_end>' partido:
+      // emite-se, salvo quando a paragem foi exactamente por esse marcador.
+      if (stop != 'stop_string' && held.isNotEmpty) {
         events.send({'e': 'delta', 't': held});
+        held = '';
       }
 
       // ---- bookkeeping do cache de prompt --------------------------------
@@ -778,14 +789,14 @@ class _Worker {
             }
             break;
           }
-          final breakers = _alloc<Pointer<Uint8>>(drySeqBreakers.length);
+          final nBreak = drySeqBreakers.length;
+          final breakers = _alloc<Pointer<Uint8>>(nBreak * sizeOf<Pointer<Uint8>>());
           for (var i = 0; i < drySeqBreakers.length; i++) {
             breakers[i] = _utf8z(drySeqBreakers[i]);
           }
           final s = dry(vocab, cfg.dryMultiplier, cfg.dryBase,
-              cfg.dryAllowedLength, cfg.dryPenaltyLastN, breakers,
-              drySeqBreakers.length);
-          for (var i = 0; i < drySeqBreakers.length; i++) {
+              cfg.dryAllowedLength, cfg.dryPenaltyLastN, breakers, nBreak);
+          for (var i = 0; i < nBreak; i++) {
             _release(breakers[i]);
           }
           _release(breakers);
@@ -820,7 +831,7 @@ class _Worker {
     var cap = bytes.length + 16;
     try {
       while (true) {
-        final tokPtr = _alloc<Int32>(cap * 4);
+        final tokPtr = _alloc<Int32>(cap * sizeOf<Int32>());
         final n = b.tokenize(vocab, textPtr, bytes.length, tokPtr, cap,
             addSpecial, parseSpecial);
         if (n >= 0 && n <= cap) {
@@ -878,7 +889,7 @@ class _GenLink {
 }
 
 /// [LlmEngine] sobre llama.cpp (MiniCPM5-2B) — ver doc do ficheiro.
-class LlmEngineLlama implements LlmEngine {
+class LlamaFfiEngine implements LlmEngine {
   /// Nome da biblioteca partilhada (empacotada em
   /// `android/app/src/main/jniLibs/<abi>/`). Aberta por NOME DE FICHEIRO —
   /// obrigatório no Android, onde as libs são carregadas pelo linker.
@@ -920,9 +931,10 @@ class LlmEngineLlama implements LlmEngine {
       _onWorkerMessage(m);
     });
     _inbox = inbox;
-    final future = Isolate.spawn(_workerMain, inbox.sendPort)
-        .then((iso) => handshake.future)
-        .then((port) {
+    final future = Isolate.spawn(_workerMain, inbox.sendPort).then((iso) {
+      _isolate = iso;
+      return handshake.future;
+    }).then((port) {
       _commands = port;
       return port;
     });
@@ -1085,14 +1097,26 @@ class LlmEngineLlama implements LlmEngine {
     _loaded = false;
     _modelPath = '';
     final commands = _commands;
-    if (commands == null) return;
-    final reply = ReceivePort();
-    try {
-      commands.send({'cmd': 'unload', 'reply': reply.sendPort});
-      await reply.first.timeout(const Duration(seconds: 60),
-          onTimeout: () => {'ok': true});
-    } finally {
-      reply.close();
+    if (commands != null) {
+      // Liberta os handles nativos (contexto + modelo) no isolate de trabalho.
+      final reply = ReceivePort();
+      try {
+        commands.send({'cmd': 'unload', 'reply': reply.sendPort});
+        await reply.first.timeout(const Duration(seconds: 60),
+            onTimeout: () => {'ok': true});
+      } finally {
+        reply.close();
+      }
     }
+    // Teardown completo: mata o isolate e força re-spawn no próximo load().
+    _isolate?.kill(priority: Isolate.immediate);
+    _inbox?.close();
+    _isolate = null;
+    _inbox = null;
+    _commands = null;
+    _ready = null;
   }
 }
+
+/// Alias de compatibilidade (a UI já referencia `LlmEngineLlama`).
+typedef LlmEngineLlama = LlamaFfiEngine;

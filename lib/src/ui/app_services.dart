@@ -1,7 +1,7 @@
 /// Injeção simples de dependências da UI (singleton leve).
 ///
-/// Motores concretos ([LayaOnnxEngine] ligado; `LlmEngineLlama` ligado assim
-/// que `llm_engine_llama.dart` compilar) entram por factories injetáveis; sem
+/// Motores concretos ([LayaOnnxEngine] ligado; `LlamaFfiEngine` ligado) entram
+/// por factories injetáveis; sem
 /// factory, as `ensure*` lançam [UnimplementedError] com mensagem clara e a UI
 /// mostra SnackBar/banner em vez de rebentar.
 library;
@@ -34,8 +34,8 @@ class AppServices {
   late final DownloadManager downloads = DownloadManager();
 
   /// Factories dos motores concretos (injetáveis para testes):
-  /// `LlmEngineLlama` (llama.cpp via FFI) e `LayaOnnxEngine` (ONNX Runtime).
-  LlmEngine Function()? llmFactory = LlmEngineLlama.new;
+  /// `LlamaFfiEngine` (llama.cpp via FFI) e `LayaOnnxEngine` (ONNX Runtime).
+  LlmEngine Function()? llmFactory = LlamaFfiEngine.new;
   LayaEngine Function()? layaFactory = LayaOnnxEngine.new;
 
   /// Factory opcional do [ToolLoop] (para testes/injeção).
@@ -177,7 +177,7 @@ class AppServices {
     final factory = llmFactory;
     if (factory == null) {
       throw UnimplementedError(
-          'Motor LLM indisponível: `LlmEngineLlama` (llm_engine_llama.dart) '
+          'Motor LLM indisponível: `LlamaFfiEngine` (llm_engine_llama.dart) '
           'ainda não está pronto para esta build.');
     }
     return factory();
