@@ -58,3 +58,6 @@ tools/llama-build/
 ios/Frameworks/
 ios/pods/llama_ffi/llama.xcframework/
 tools/build-ios-*/
+
+# Build de experiência (matriz Metal)
+tools/llama.cpp-master/
