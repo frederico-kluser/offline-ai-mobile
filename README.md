@@ -97,6 +97,26 @@ flutter install
 
 Requisitos: Flutter 3.47+, Android SDK 36, NDK 27.2, CMake 3.22.1.
 
+## Build (iOS)
+
+```bash
+# 1. Compilar o llama.cpp para iOS (device arm64 + simulador, Metal embutido)
+bash tools/llama_build_ios.sh   # gera ios/pods/llama_ffi/llama.xcframework
+
+# 2. Build (simulador ou device)
+flutter build ios --no-codesign        # device, sem assinatura
+flutter build ios --simulator          # simulador
+
+# 3. Gate de qualidade E2E (MOTORES REAIS dentro da app)
+flutter test integration_test -d <sim-udid>
+```
+
+Requisitos: Xcode 27+, CocoaPods, CMake. **Nota de GPU**: o Metal do llama.cpp
+está validado no macOS nativo (saída correta) e ativa-se automaticamente em
+dispositivos Apple reais (`gpuLayers=-1`); o **simulador iOS tem Metal
+incompleto** (produz mojibake) e o motor deteta-o, usando CPU aí. O gate final
+é um iPhone físico — ver [`docs/runbook-iphone-fisico.md`](docs/runbook-iphone-fisico.md).
+
 ## Arquitetura
 
 ```
