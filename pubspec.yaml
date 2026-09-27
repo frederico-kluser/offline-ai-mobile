@@ -45,6 +45,8 @@ dependencies:
   onnxruntime_v2: ^1.23.2+2
 
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
 
