@@ -7,7 +7,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../domain/laya_types.dart';
-import '../domain/llm_config.dart';
 import '../domain/templates.dart';
 import '../services/store.dart';
 import 'app_services.dart';

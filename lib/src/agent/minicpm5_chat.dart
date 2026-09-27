@@ -37,8 +37,8 @@ class Tags {
   static String get paramClose => close('param');
   static String get cdataOpen => '$lt$bang$ob' 'CDATA$cb$gt';
   static String get cdataClose => '$cb$cb$gt';
-  static String get toolResultOpen => open('tool_result');
-  static String get toolResultClose => close('tool_result');
+  static String get toolResultOpen => open('tool_response');
+  static String get toolResultClose => close('tool_response');
   static String get toolsOpen => open('tools');
   static String get toolsClose => close('tools');
   static String get toolSep => '<' 'tool_sep' '>';

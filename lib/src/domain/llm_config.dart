@@ -270,6 +270,19 @@ class LayaConfig {
     this.maxStateChars = 2000,
   });
 
+  LayaConfig copyWith({
+    int? threads,
+    String? executionProvider,
+    int? maxStateTokens,
+    int? maxStateChars,
+  }) =>
+      LayaConfig(
+        threads: threads ?? this.threads,
+        executionProvider: executionProvider ?? this.executionProvider,
+        maxStateTokens: maxStateTokens ?? this.maxStateTokens,
+        maxStateChars: maxStateChars ?? this.maxStateChars,
+      );
+
   Map<String, dynamic> toJson() => {
         'threads': threads,
         'execution_provider': executionProvider,

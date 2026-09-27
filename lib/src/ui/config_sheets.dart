@@ -3,7 +3,6 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../domain/llm_config.dart';
 import '../services/store.dart';
 import 'llm_config_form.dart';
 

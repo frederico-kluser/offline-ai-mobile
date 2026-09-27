@@ -61,7 +61,7 @@ Parser e chat template fiéis ao `chat_template.jinja` oficial do
 [openbmb/MiniCPM5-2B](https://huggingface.co/openbmb/MiniCPM5-2B): o modelo emite
 chamadas em XML com a tag `function` (atributo `name`) contendo tags `param`
 (atributo `name`); valores com caracteres especiais usam CDATA; os resultados
-voltam como mensagens `tool_result` agrupadas em papel `user`. O exemplo
+voltam como mensagens `tool_response` agrupadas em papel `user`. O exemplo
 embutido (`lib/src/agent/tools.dart`) usa três ferramentas locais determinísticas
 — calculadora segura (parser próprio, sem `eval`) e notas `note_save` /
 `note_read` — mais a ferramenta de conclusão `final_answer` (sinal explícito de
