@@ -70,7 +70,10 @@ class LlmConfig {
   /// Em 8 GB de RAM: 8k–16k (32k com KV q8_0).
   final int contextSize;
 
-  /// Camadas descarregadas para GPU (0 = CPU; no emulador x86_64 usar CPU).
+  /// Camadas na GPU. Semântica do llama.cpp (C API): 0 = CPU; N = N camadas
+  /// do topo na GPU; **negativo = TODAS** (recomendado em Apple: Metal offload
+  /// completo dá ~1,4–1,7× vs CPU). O motor interpreta -1 em Android como 0
+  /// (shaders Vulkan só otimizados para Adreno) — pôr N≥1 para forçar GPU lá.
   final int gpuLayers;
 
   /// Cache de prompt: amplifica divergência entre execuções (dossiê Q6) —
@@ -96,7 +99,7 @@ class LlmConfig {
     this.enableThinking = false,
     this.threads = 7,
     this.contextSize = 8192,
-    this.gpuLayers = 0,
+    this.gpuLayers = -1,
     this.cachePrompt = false,
   });
 
@@ -196,7 +199,7 @@ class LlmConfig {
       enableThinking: j['enable_thinking'] as bool? ?? false,
       threads: (j['threads'] as num?)?.toInt() ?? 7,
       contextSize: (j['context_size'] as num?)?.toInt() ?? 8192,
-      gpuLayers: (j['gpu_layers'] as num?)?.toInt() ?? 0,
+      gpuLayers: (j['gpu_layers'] as num?)?.toInt() ?? -1,
       cachePrompt: j['cache_prompt'] as bool? ?? false,
     );
   }

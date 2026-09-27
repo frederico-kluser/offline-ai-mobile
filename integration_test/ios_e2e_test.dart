@@ -4,7 +4,7 @@
 /// Android, quando correr lá). Usa os modelos instalados em
 /// `<documents>/models/` (ver Modelos). Correr com:
 ///
-///   flutter test integration_test -d <sim-udid>
+///   flutter test integration_test -d `<sim-udid>`
 ///
 /// Asserções determinísticas onde possível (Laya = validado 8/8 contra
 /// oráculo); para o LLM (Metal/CPU difere de Android) as asserções são de

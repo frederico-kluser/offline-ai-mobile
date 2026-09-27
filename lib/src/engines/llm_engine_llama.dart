@@ -447,8 +447,15 @@ class _Worker {
       b.backendInit();
 
       // Model params: defaults (mmap ON por defeito) + camadas de GPU.
+      // Semantica C API: negativo = TODAS as camadas na GPU. Apple (Metal):
+      // usar o valor do config tal-e-qual (-1 = offload completo). Android:
+      // negativo vira 0 (shaders Vulkan so otimizados para Adreno; CPU e o
+      // caminho estavel — forcar GPU com N>=1 no config).
       final mp = b.modelDefaultParams();
-      mp.nGpuLayers = cfg.gpuLayers;
+      final wantsAll = cfg.gpuLayers < 0;
+      mp.nGpuLayers = Platform.isAndroid
+          ? (wantsAll ? 0 : cfg.gpuLayers)
+          : cfg.gpuLayers;
 
       final pathPtr = _utf8z(path);
       model = b.modelLoadFromFile(pathPtr, mp);
@@ -465,7 +472,12 @@ class _Worker {
       nVocab = b.vocabNTokens(vocab);
 
       // Context params: defaults + contexto/threads/batch do config.
+      // Flash Attention: ENABLED em Apple (recomendado com Metal) e AUTO nos
+      // restantes (enum llama_flash_attn_type: -1 auto, 0 off, 1 on).
       final cp = b.contextDefaultParams();
+      if (Platform.isIOS || Platform.isMacOS) {
+        cp.flashAttnType = 1;
+      }
       nCtx = cfg.contextSize;
       cp.nCtx = nCtx;
       if (cp.nBatch == 0 || cp.nBatch > nCtx) cp.nBatch = nCtx;
