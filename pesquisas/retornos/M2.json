@@ -1,0 +1,673 @@
+{
+  "id": "M2",
+  "estado": "concluido",
+  "confianca": "moderada-alta (evidência A/B sólida para artefactos e APIs; estimativas de tok/s em M1/iPhone são extrapolações a validar por benchmark próprio)",
+  "resposta": "RESUMO EXECUTIVO: mantendo Flutter (sem UI nativa) há 4 caminhos vivos para o MiniCPM5-2B em iOS, e o ranking para o vosso caso (qualidade de saída primeiro) é: (A) llama.cpp CPU otimizado [curto prazo, comprovado] → (B) MLX via Swift + ponte Flutter [melhor hipótese de velocidade com qualidade] → (D) LiteRT-LM oficial [artefato já testado em iPhone, com perda de exatidão medida de ~5-6pp no int4] → (E/F) CoreML/ANE [experimental, esforço alto]. Descartados: fcllama (morto), executorch_flutter (LLM só Gemma 4, iOS CPU-only), MediaPipe legado/flutter_mediapipe_chat (parado), llama_cpp_dart como substituto do motor (não corrige o mojibake). Mais: R0 (re-teste Metal com Q8_0 + tag nova do llama.cpp) é o teste mais barato de todos e pode devolver-vos a GPU sem mudar de runtime.\n\n(1) OPÇÕES FLUTTER PARA LLM EM iOS HOJE: • llama_cpp_dart (0.2.2 estável Jan/2026, 82 likes; dev 0.9.0-dev.12): iOS suportado via xcframework Apple estático (ios-arm64+simulador+macos-arm64) com Metal embutido, Jinja embutido via llama_chat_apply_template, KV-cache quantizado, speculative decoding; SEM tool calling e SEM correção do bug Metal (é o mesmo llama.cpp). • fcllama: morto (0.0.3, Nov/2024); fllama (Telosnex) é o sucessor comunitário multiplataforma, sem tool calling XML. • Bridges MLX: não existe mlx-flutter oficial; o mlx_localllm (0.2.13, iOS 17+, ARM64, SPM) é o único plugin Flutter que declara iOS, mas é de baixa adoção (1 like) e sem tool calling documentado; a alternativa madura é escrever a ponte Swift (mlx-swift-lm MLXLLM/MLXLMCommon via SPM + method channel/ffi), com guias publicados e sessão WWDC25 a cobrir LLMs em MLX Swift. • ExecuTorch: o executorch_flutter (0.8.0, 8 dias) é real e ativo mas o módulo LLM é 'experimental' e só corre Gemma 4 E2B, com MLX restrito a macOS — em iOS fica XNNPACK/CPU; não há MiniCPM5 nem gêmeo Flutter do react-native-executorch. • MediaPipe/LiteRT: MediaPipe LLM Inference é caminho legado (conversão via LiteRT Torch Generative API, CPU-only, Linux 64GB); o runtime atual é o LiteRT-LM (production-ready, CPU+GPU em iOS, Swift API em Early Preview, Flutter via flutter_gemma community) — e a OpenBMB publicou bundles .litertlm oficiais do MiniCPM5 testados em iPhone 17 Pro. QUALIDADE DE SAÍDA: o mojibake é um bug do backend Metal do llama.cpp b11217 (3 corridas controladas: Metal+FA on = lixo, Metal+FA off = mesmo lixo, CPU = correto) — nada disso afeta MLX/LiteRT-LM/CoreML, que não passam pelos kernels do ggml-metal; mas atenção: o int4 do LiteRT tem perda de exatidão medida (GSM8K 86–87% vs 92% bf16).\n\n(2) MLX EM iOS VIA FLUTTER — VIÁVEL? SIM, com ponte. O MLX Swift é suportado pela Apple (WWDC25 Session 298), o mlx-swift-lm (MLXLLM/MLXLMCommon) corre em iOS, e os pesos oficiais openbmb/MiniCPM5-2B-MLX são model_type 'llama' (LlamaForCausalLM, 4-bit affine group 64) — arquitetura suportada por esses runtimes, o que resolve o receio de 'arquitetura custom não suportada'. Maturidade: o runtime é maduro (usado em apps iOS reais), o que falta é a vossa ponte (streaming, gestão de memória, entitlement increased-memory-limit para pesos bf16/maiores). O plugin pronto mlx_localllm é atalho possível mas de maturidade média-baixa. O ganho anunciado '~60% faster' é da OpenBMB (MLX vs GGUF, desktop Apple Silicon, LM Studio) — direção correta, promessa a confirmar em iPhone. Detalhe útil: o runtime MLX do LM Studio faz 'automatic think/answer split via reasoning_content' — irrelevante para vosso parser, que já trata do formato em Dart, mas confirma que o formato de saída é tratável a jusante.\n\n(3) COREML PARA MINICPM5 EM FLUTTER — HIPÓTESE FRACA. Não existe conversor GGUF→mlpackage; o caminho documentado é HF/PyTorch→mlpackage com coremltools (artigo da Apple sobre Llama 3.1 in-device, PTQ data-free/palettization) e o próprio artigo admite NÃO avaliar a qualidade — para um modelo de 2B com 2 heads KV e 131K de contexto, o risco de regressão é desconhecido. O coreml_flutter não existe como pacote pub.dev; o equivalente é o flutter_native_ml (1.2.2, .mlmodel/.mlpackage/.mlmodelc, ANE/GPU/CPU), que faz apenas inferência tensorial genérica: tokenizer, loop de autoregressão, KV cache e sampling teriam de ser escritos em Swift (1–2 meses). Um atalho mais inteligente dentro desta hipótese: o backend ANE de terceiros para o llama.cpp (discussion #336; relatório de 16.8x vs CPU; APIs CoreML macOS 15+/iOS 18+), que mantém o GGUF e a vossa FFI — mas é experimental e sem garantia para GQA 2-KV. Em suma: CoreML só faz sentido se (e quando) o Metal do llama.cpp continuar corrompendo E o MLX falhar — ou seja, é o 3º recurso.\n\n(4) LLAMA.CPP CPU EM FLUTTER COM OTIMIZAÇÕES — expectativa de tok/s: corrigindo a hipótese, Q8_0 NÃO é mais rápida em CPU (Q4_0 foi 59–63% mais rápida que Q8_0 em 7B/M4 Max; Q8_0 ~29% mais lenta que Q4_K_M); Q8_0 só melhora a qualidade. Otimizações com efeito: threads = nº de P-cores (M1: 4; mais threads que P-cores ATRAPALHA), quant Q4_K_M (ou Q4_0 para GEMV ainda mais rápido), batch/ubatch moderados, KV quant (q8_0) com flash-attn para contextos longos (é uma alavanca de MEMÓRIA, não de velocidade), e evitar contextos 131K em CPU. Números: M1 CPU faz 14.2 tok/s de decode com 7B Q4_0 (benchmarks do llama.cpp) — o MiniCPM5-2B (pesos Q4_K_M = 1.56GB) é ~3.4x mais leve por token e o M1 tem ~68 GB/s de banda → 20–40 tok/s de decode plausíveis no Mac/simulador, ~15–30 tok/s em iPhone A-series; âncora independente: o int4 do MiniCPM5 corre a 31.1 tok/s de decode em CPU de M4 Max no LiteRT-LM (prefill 149 tok/s). Tradução prática: CPU é perfeitamente utilizável para um app de teste de prompts (respostas de 100-300 tokens em 5-15s), mas será sempre o mais lento dos caminhos.\n\nRECOMENDAÇÃO: (i) fazer R0 já (re-teste Metal com Q8_0 + tag nova — horas de trabalho, pode devolver a GPU sem mudar nada); (ii) em paralelo, protótipo de B (MLX via Swift + ponte) com o openbmb/MiniCPM5-2B-MLX, usando o vosso render Jinja em Dart e prompt cru — é o caminho com melhor combinação de qualidade (pesos oficiais) e velocidade (GPU Apple sem os kernels do ggml-metal); (iii) D (LiteRT-LM int4) como plano B com artefato oficial já testado em iPhone, aceitando a perda medida de ~5-6pp de exatidão; (iv) manter A como runtime de referência/qualidade e para Android; (v) E/F (CoreML/ANE) só se tudo o resto falhar. A vossa arquitetura de tool calling (Jinja em Dart + parser XML em Dart) é compatível com A, B e D — nenhuma alternativa exige abandonar o formato XML nem a UI Flutter.",
+  "afirmacoes": [
+    {
+      "texto": "O MiniCPM5-2B usa arquitetura LlamaForCausalLM standard com model_type \"llama\" (head_dim 128, 16 heads de query, 2 heads KV, 42 camadas), o que torna os pesos MLX oficiais carregáveis por qualquer runtime MLX Swift que suporte a arquitetura llama — inclusive mlx-swift-lm (MLXLLM/MLXLMCommon).",
+      "fontes": [
+        "F9",
+        "F26",
+        "F27",
+        "F30"
+      ],
+      "citacao_literal": "\"architectures\": [\"LlamaForCausalLM\"] … \"model_type\": \"llama\" … \"head_dim\": 128 … \"num_attention_heads\": 16 … \"num_key_value_heads\": 2 … \"quantization\": {\"group_size\": 64, \"bits\": 4, \"mode\": \"affine\"}",
+      "central": true
+    },
+    {
+      "texto": "Existe MLX OFICIAL do MiniCPM5 (openbmb/MiniCPM5-2B-MLX, bf16/4-bit) e a OpenBMB afirma que o runtime MLX é ~60% mais rápido que o GGUF — mas a afirmação está documentada no contexto de LM Studio/desktop Apple Silicon, não de iOS.",
+      "fontes": [
+        "F9",
+        "F10"
+      ],
+      "citacao_literal": "| \\\\MLX\\\\ (Apple Silicon only) | bf16 / 4-bit | ~60 % faster, automatic think/answer split via `reasoning_content`; Q4 build |",
+      "central": true
+    },
+    {
+      "texto": "Não existe hoje plugin Flutter MLX maduro para iOS: o único que declara iOS é o mlx_localllm (0.2.13, iOS 17.0+ ARM64, 15 versões, 1 'like', publicado há ~6 meses). A alternativa robusta é uma ponte própria Swift (mlx-swift-lm via SPM) ligada ao Flutter por method channel ou dart:ffi — viável e com guias publicados, incluindo sessão WWDC25 sobre MLX em Swift.",
+      "fontes": [
+        "F6",
+        "F31",
+        "F7",
+        "F8",
+        "F29",
+        "F30"
+      ],
+      "citacao_literal": "| iOS | ✅ | ARM64 | 17.0+ |",
+      "central": true
+    },
+    {
+      "texto": "No caminho CoreML NÃO existe conversor GGUF→mlpackage: o único caminho documentado é HF/PyTorch→mlpackage via coremltools (Apple, com PTQ data-free/palettization), e o próprio artigo da Apple declara não avaliar a qualidade do modelo. O plugin flutter_native_ml (1.2.2) só faz inferência genérica de .mlmodel/.mlpackage/.mlmodelc (sem tokenizer, sem loop de geração, sem KV cache) — o loop teria de ser escrito em Swift.",
+      "fontes": [
+        "F18",
+        "F19"
+      ],
+      "citacao_literal": "Since our main focus here is to evaluate latency/throughput, we do not evaluate the quality of the model on, say, datasets that are common in the literature to qualify accuracy.",
+      "central": true
+    },
+    {
+      "texto": "Existe um backend ANE (Neural Engine) de terceiros para o ggml/llama.cpp que usa as novas APIs de tensores do CoreML (macOS 15+/iOS 18+), com um relatório de '16.8x faster than CPU' — experimental, não integrado upstream, e com um issue aberta ('add ANE backend', #10453).",
+      "fontes": [
+        "F20",
+        "F21"
+      ],
+      "citacao_literal": "Built a working ggml ANE backend. 16.8x faster than CPU. API is only available thru CoreML",
+      "central": false
+    },
+    {
+      "texto": "A hipótese de 'Q8_0 mais rápida em CPU' não se confirma: em CPU a Q4 é tipicamente MAIS rápida que a Q8_0 (Q4_0 gerou 59–63% mais rápido que Q8_0 num 7B em M4 Max; Q8_0 é ~29% mais lenta a gerar que Q4_K_M). Q8_0 ganha qualidade (mais próxima de fp16), não velocidade.",
+      "fontes": [
+        "F23",
+        "F24",
+        "F22"
+      ],
+      "citacao_literal": "Q4_0 generated text 59–63% faster than Q8_0 on a 7B-class model (69.95 vs 43.87 tok/s)",
+      "central": true
+    },
+    {
+      "texto": "Expectativa de desempenho CPU do MiniCPM5-2B no caminho llama.cpp: ~20–40 tok/s de decode num Apple M1 (extrapolação do benchmark M1 do llama.cpp para 7B Q4_0 = 14.19 t/s, com pesos Q4_K_M de 1.56GB contra ~68 GB/s de banda do M1) e ~15–30 tok/s em iPhone A-series recente; âncora independente: o int4 do MiniCPM5 em LiteRT-LM faz 31.1 tok/s de decode em CPU de M4 Max. Regras de tuning: threads = nº de P-cores (mais threads que P-cores ATRAPALHA), quant Q4_K_M ou Q4_0 em vez de Q8_0 para velocidade.",
+      "fontes": [
+        "F22",
+        "F11",
+        "F23",
+        "F25",
+        "F27"
+      ],
+      "citacao_literal": "-t N with N greater than the number of performance cores. More threads than P-cores hurts.",
+      "central": true
+    },
+    {
+      "texto": "Existe artefato OFICIAL do MiniCPM5 para LiteRT-LM já testado em iPhone: 'MiniCPM5-2B_int4.litertlm' (1.55 GB) corre em CPU e GPU (Metal) de iPhone 17 Pro; a qualidade medida cai com a quantização (GSM8K: bf16 92%, int8 CPU 91%, int4 CPU 86%, int4 GPU 87%) — perda de ~5–6 pontos face ao fp16, relevante para o critério 'saída de qualidade'.",
+      "fontes": [
+        "F11",
+        "F12"
+      ],
+      "citacao_literal": "Tested on an iPhone 17 Pro with the int4 file on both backends (Metal GPU and CPU; init 5.7 s and 2.2 s). … bf16 PyTorch 92 %, int8 CPU 91 %, int4 CPU 86 %, int4 GPU 87 %.",
+      "central": true
+    },
+    {
+      "texto": "Os bindings Flutter para LiteRT-LM existem mas são jovens: flutter_gemma (1.11.0, 138 versões, publicado ontem — ativo) + flutter_gemma_litertlm (1.8.4) + litertlm (0.0.14, FFI para o Swift package oficial em iOS). A API Swift do LiteRT-LM está em 'Early Preview' e a integração Flutter é classificada pela Google como 'Community'. A lista de modelos do flutter_gemma NÃO inclui o MiniCPM5 (só Gemma, Qwen3 0.6B, Phi-4 Mini, DeepSeek R1, SmolLM…).",
+      "fontes": [
+        "F13",
+        "F15",
+        "F16",
+        "F31"
+      ],
+      "citacao_literal": "Swift | 🚀 Early Preview | Native iOS and macOS integration with specialized Metal support. … Flutter | 🚀 Community | Cross-platform Flutter apps using community `flutter_gemma`.",
+      "central": true
+    },
+    {
+      "texto": "O llama_cpp_dart evoluiu desde a avaliação anterior: a linha 0.9.0-dev tem artefacto xcframework Apple (ios-arm64 + simulador + macos-arm64) com Metal embutido, usa o Jinja embutido do modelo via llama_chat_apply_template (com fallback para render manual), e traz KV-cache quantizado, context shift e speculative decoding — mas continua a ser o mesmo llama.cpp por baixo, pelo que NÃO corrige o mojibake do Metal, e continua sem API de tool calling.",
+      "fontes": [
+        "F1",
+        "F2",
+        "F3"
+      ],
+      "citacao_literal": "Chat: uses the model's embedded Jinja chat template via `llama_chat_apply_template`. Falls back to manual prompt rendering for models with custom Jinja the C API can't parse.",
+      "central": false
+    },
+    {
+      "texto": "O fcllama está morto (0.0.3, Nov/2024, 2 versões, sem atualizações há ~22 meses) — descartado. O projeto sucessor na área é o fllama (Telosnex), multiplataforma (web/iOS/macOS/Android/Windows/Linux) mas igualmente sem suporte nativo ao tool calling XML do MiniCPM5.",
+      "fontes": [
+        "F4",
+        "F5"
+      ],
+      "citacao_literal": "fcllama 0.0.3 … Published 22 months ago",
+      "central": false
+    },
+    {
+      "texto": "O executorch_flutter (0.8.0, Set/2026) tem LLM apenas 'experimental' e exclusivamente com Gemma 4 E2B; os backends de LLM são XNNPACK (CPU, todas as plataformas) e MLX só em macOS arm64 — em iOS ficaria CPU-only, e não há caminho publicado para converter o MiniCPM5. Não existe outro irmão Flutter do react-native-executorch.",
+      "fontes": [
+        "F17"
+      ],
+      "citacao_literal": "On-device LLM (experimental): streaming text generation with Gemma 4 (XNNPACK CPU + MLX Apple-GPU) … Backends: XNNPACK (CPU, all platforms) and MLX (Apple-Silicon GPU, macOS arm64).",
+      "central": false
+    },
+    {
+      "texto": "O MediaPipe LLM Inference (legado) exige modelos em formato MediaPipe/LiteRT (os bundles litert-community servem) e a conversão de modelos PyTorch faz-se com o LiteRT Torch Generative API — apenas CPU, requer Linux com 64 GB de RAM; a Google recomenda o LiteRT-LM para novos projetos, e o plugin flutter_mediapipe_chat está parado (1.0.0, única versão, Fev/2025).",
+      "fontes": [
+        "F14",
+        "F28",
+        "F13"
+      ],
+      "citacao_literal": "The Torch Generative converter only converts for CPU and requires a Linux machine with at least 64 GBs of RAM.",
+      "central": false
+    },
+    {
+      "texto": "O tool calling do MiniCPM5 é de facto XML-style (formato próprio), tal como assumido pelo projeto: a OpenBMB recomenda o SGLang com parser 'minicpm5' que converte os tool calls XML em tool_calls OpenAI — o que valida a vossa arquitetura de renderizar o chat_template.jinja em Dart e parsear o XML no Dart, com o runtime a servir só tokenização/logits/sampling (funciona com llama.cpp FFI, e em princípio com LiteRT-LM em modo texto e MLX em generate com prompt cru).",
+      "fontes": [
+        "F26",
+        "F1",
+        "F6"
+      ],
+      "citacao_literal": "MiniCPM5-1B emits XML-style tool calls and SGLang's built-in `minicpm5` parser converts them to OpenAI-compatible `tool_calls` natively",
+      "central": true
+    }
+  ],
+  "opcoes": [
+    {
+      "nome": "A) Manter llama.cpp CPU + otimizações (threads=P-cores, Q4_K_M, KV q8_0, batch tuning)",
+      "tipo": "runtime C/C++ existente (llama.xcframework + dart:ffi próprio)",
+      "maturidade": "alta — motor próprio já verificado E2E (tool loop 396) no simulador iOS",
+      "qualidade_saida": "alta e COMPROVADA (única com geração correta neste projeto; o mojibake é exclusivo do Metal)",
+      "esforco": "baixo (dias) — só tuning: threads 4 (P-cores do M1), sem Q8_0 como opção de velocidade, ubatch/batch, opção de re-teste Metal com Q8_0",
+      "fontes": [
+        "F22",
+        "F25",
+        "F23",
+        "F24",
+        "F27"
+      ]
+    },
+    {
+      "nome": "B) MLX em iOS via Swift (mlx-swift-lm) + ponte Flutter (method channel/dart:ffi) com pesos openbmb/MiniCPM5-2B-MLX",
+      "tipo": "runtime Apple MLX ligado por ponte Swift própria",
+      "maturidade": "média-alta no runtime (MLX oficial, WWDC25, mlx-swift-lm ativo); a ponte é trabalho novo (2–4 semanas)",
+      "qualidade_saida": "provável alta — pesos oficiais 4-bit do MiniCPM5 (model_type llama), sem passar pelos kernels problemáticos do llama.cpp Metal; falta medição de qualidade pública (o '~60% faster' é velocidade, de desktop)",
+      "esforco": "médio-alto — pacote Swift + streaming token-a-token + gestão de memória (increased-memory-limit), mas reutiliza o parser XML/Jinja em Dart se o generate aceitar prompt cru",
+      "fontes": [
+        "F9",
+        "F10",
+        "F7",
+        "F8",
+        "F29",
+        "F30"
+      ]
+    },
+    {
+      "nome": "C) mlx_localllm (plugin Flutter MLX pronto a usar)",
+      "tipo": "plugin pub.dev sobre MLX (SPM)",
+      "maturidade": "média-baixa (0.2.13, iOS 17+, 15 versões, 1 'like', sem tool calling documentado)",
+      "qualidade_saida": "provável alta (usa os mesmos pesos MLX) — não verificada",
+      "esforco": "baixo-médio (dias) — depende de aceitar prompt cru/streaming; risco de abandono do pacote",
+      "fontes": [
+        "F6",
+        "F31"
+      ]
+    },
+    {
+      "nome": "D) LiteRT-LM oficial (MiniCPM5-2B_int4.litertlm) via flutter_gemma/flutter_gemma_litertlm/litertlm",
+      "tipo": "runtime Google LiteRT-LM por FFI/Swift package",
+      "maturidade": "média — runtime 'production-ready' com bundle oficial testado em iPhone 17 Pro; bindings Flutter community/early (flutter_gemma muito ativo: 138 versões)",
+      "qualidade_saida": "média-alta — exatidão MEDIDA: int4 86–87% GSM8K vs 92% bf16 (perda ~5–6 pp); int8 disponível mas 2.6 GB exige entitlement increased-memory-limit",
+      "esforco": "médio — arranque rápido se o flutter_gemma aceitar o .litertlm do MiniCPM5 (não confirmado); caso contrário FFI sobre o Swift API (early preview)",
+      "fontes": [
+        "F11",
+        "F12",
+        "F13",
+        "F15",
+        "F16"
+      ]
+    },
+    {
+      "nome": "E) CoreML puro: flutter_native_ml/platform channel + loop de geração Swift (modelo HF→mlpackage via coremltools)",
+      "tipo": "Core ML nativo (ANE/GPU/CPU) com app-side generation loop",
+      "maturidade": "baixa para LLM (a inferência genérica é madura; tokenizer/KV/sampling teriam de ser escritos)",
+      "qualidade_saida": "incerta — PTQ data-free/palettization com avaliação de qualidade ausente no artigo da Apple; risco real de regressão",
+      "esforco": "alto (1–2 meses) + pipeline de conversão Python/coremltools",
+      "fontes": [
+        "F18",
+        "F19"
+      ]
+    },
+    {
+      "nome": "F) Backend ANE para o próprio llama.cpp (projeto da comunidade, APIs CoreML iOS 18+)",
+      "tipo": "extensão ggml sobre CoreML tensor API",
+      "maturidade": "experimental — issue 'add ANE backend' (#10453) aberta; sem garantias de GQA 2-KV/MiniCPM5",
+      "qualidade_saida": "desconhecida (o '16.8x faster than CPU' é relatório não verificado)",
+      "esforco": "médio-alto (integrar branch, validar mojibake vs ANE)",
+      "fontes": [
+        "F20",
+        "F21"
+      ]
+    },
+    {
+      "nome": "G) Trocar o motor por llama_cpp_dart 0.9.0-dev (Jinja nativo, xcframework Apple, KV quant)",
+      "tipo": "pacote pub.dev sobre llama.cpp",
+      "maturidade": "média (estável 0.2.2 há 8 meses; dev ativa em 0.9.0-dev.12)",
+      "qualidade_saida": "idêntica ao llama.cpp — o mojibake do Metal persistiria; ganho só de manutenção",
+      "esforco": "médio e REGRESSIVO face ao motor FFI próprio já testado (condição de reabertura do projeto: ganho medido >=30%)",
+      "fontes": [
+        "F1",
+        "F2",
+        "F3"
+      ]
+    },
+    {
+      "nome": "H) ExecuTorch (executorch_flutter) / MediaPipe LLM Inference (flutter_mediapipe_chat) / fcllama",
+      "tipo": "descartados nesta ronda",
+      "maturidade": "baixa para o caso de uso (ExecuTorch LLM = só Gemma 4 E2B e iOS CPU-only; MediaPipe = caminho legado substituído pelo LiteRT-LM e plugin parado; fcllama = estagnado há 22 meses)",
+      "qualidade_saida": "n/d — não suportam o MiniCPM5 sem conversão própria",
+      "esforco": "alto face ao benefício",
+      "fontes": [
+        "F17",
+        "F14",
+        "F28",
+        "F4"
+      ]
+    },
+    {
+      "nome": "R0) Re-teste barato do Metal (Q8_0 em vez de Q4_K_M + tag do llama.cpp mais recente que b11217)",
+      "tipo": "diagnóstico/contorno do bug",
+      "maturidade": "n/a",
+      "qualidade_saida": "a determinar — se o bug for do kernel Q4_K_M/GQA-2-KV, Q8_0 e versões novas podem devolver GPU sem mojibake",
+      "esforco": "muito baixo (horas) e desbloqueia a hipótese mais rápida de ganho",
+      "fontes": [
+        "F2",
+        "F22"
+      ]
+    }
+  ],
+  "fontes": [
+    {
+      "ref": "F1",
+      "url": "https://pub.dev/packages/llama_cpp_dart",
+      "titulo": "llama_cpp_dart | Flutter package (0.2.2)",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "página + extract"
+    },
+    {
+      "ref": "F2",
+      "url": "https://github.com/netdur/llama_cpp_dart",
+      "titulo": "netdur/llama_cpp_dart: dart binding for llama.cpp (README)",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "comunidade",
+      "veiculo": "GitHub",
+      "lida": "extract"
+    },
+    {
+      "ref": "F3",
+      "url": "https://pub.dev/api/packages/llama_cpp_dart",
+      "titulo": "API pub.dev — metadados/versões llama_cpp_dart",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev API",
+      "lida": "JSON integral"
+    },
+    {
+      "ref": "F4",
+      "url": "https://pub.dev/packages/fcllama/versions",
+      "titulo": "fcllama | All Versions (0.0.3, publicado há 22 meses)",
+      "ano": "2024",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F5",
+      "url": "https://github.com/Telosnex/fllama",
+      "titulo": "Telosnex/fllama: llama.cpp for Flutter (web, iOS, macOS, Android, Windows, Linux)",
+      "ano": "2025",
+      "nivel": "C",
+      "tipo": "comunidade",
+      "veiculo": "GitHub",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F6",
+      "url": "https://pub.dev/packages/mlx_localllm",
+      "titulo": "mlx_localllm | Flutter package (0.2.13; iOS 17.0+ ARM64)",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "extract"
+    },
+    {
+      "ref": "F7",
+      "url": "https://developer.apple.com/videos/play/wwdc2025/298",
+      "titulo": "WWDC25 Session 298: Explore large language models on Apple silicon with MLX",
+      "ano": "2025",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "developer.apple.com",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F8",
+      "url": "https://midgarcorp.cc/blog/integrating-mlx-local-llms-ios-apps",
+      "titulo": "Integrating Local LLMs into iOS Apps with MLX Swift",
+      "ano": "2025",
+      "nivel": "C",
+      "tipo": "blog",
+      "veiculo": "midgarcorp.cc",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F9",
+      "url": "https://huggingface.co/openbmb/MiniCPM5-2B-MLX",
+      "titulo": "openbmb/MiniCPM5-2B-MLX (card + config.json)",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "Hugging Face",
+      "lida": "extract + config.json raw"
+    },
+    {
+      "ref": "F10",
+      "url": "https://github.com/OpenBMB/MiniCPM/blob/main/skills/minicpm5-deploy-lmstudio/SKILL.md",
+      "titulo": "OpenBMB/MiniCPM — skill minicpm5-deploy-lmstudio (tabela runtimes GGUF vs MLX)",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "GitHub",
+      "lida": "extract"
+    },
+    {
+      "ref": "F11",
+      "url": "https://github.com/OpenBMB/MiniCPM/blob/main/docs/deployment/litert.md",
+      "titulo": "OpenBMB/MiniCPM — docs/deployment/litert.md (MiniCPM5 em LiteRT-LM, iOS, benchmarks, exatidão)",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "GitHub",
+      "lida": "extract"
+    },
+    {
+      "ref": "F12",
+      "url": "https://huggingface.co/litert-community/MiniCPM5-1B",
+      "titulo": "litert-community/MiniCPM5-1B (bundles .litertlm)",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "Hugging Face",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F13",
+      "url": "https://developers.google.com/edge/litert-lm/overview",
+      "titulo": "Google AI Edge — LiteRT-LM Overview (backends/plataformas/APIs)",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "developers.google.com",
+      "lida": "extract"
+    },
+    {
+      "ref": "F14",
+      "url": "https://developers.google.com/edge/mediapipe/solutions/genai/llm_inference",
+      "titulo": "Google AI Edge — MediaPipe LLM Inference guide (conversão LiteRT Torch)",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "developers.google.com",
+      "lida": "extract"
+    },
+    {
+      "ref": "F15",
+      "url": "https://pub.dev/packages/flutter_gemma",
+      "titulo": "flutter_gemma | Flutter package (1.11.0; formatos .task/.litertlm; modelos suportados)",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "extract"
+    },
+    {
+      "ref": "F16",
+      "url": "https://pub.dev/packages/litertlm",
+      "titulo": "litertlm | Flutter package (0.0.14; iOS via Swift package oficial + FFI)",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F17",
+      "url": "https://pub.dev/packages/executorch_flutter",
+      "titulo": "executorch_flutter | Flutter package (0.8.0; LLM experimental só Gemma 4 E2B)",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "extract"
+    },
+    {
+      "ref": "F18",
+      "url": "https://pub.dev/packages/flutter_native_ml",
+      "titulo": "flutter_native_ml | Flutter package (1.2.2; Core ML .mlmodel/.mlpackage/.mlmodelc)",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "extract"
+    },
+    {
+      "ref": "F19",
+      "url": "https://machinelearning.apple.com/research/core-ml-on-device-llama",
+      "titulo": "Apple ML Research — On Device Llama 3.1 with Core ML (PTQ data-free)",
+      "ano": "2025",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "machinelearning.apple.com",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F20",
+      "url": "https://github.com/ggml-org/llama.cpp/discussions/336",
+      "titulo": "ggml-org/llama.cpp Discussion #336 — Neural Engine Support (APIs CoreML macOS 15+/iOS 18+)",
+      "ano": "2025",
+      "nivel": "C",
+      "tipo": "comunidade",
+      "veiculo": "GitHub",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F21",
+      "url": "https://www.reddit.com/r/LocalLLaMA/comments/1s835d5/new_apple_neural_engine_ane_backend_for_llamacpp",
+      "titulo": "r/LocalLLaMA — 'New - Apple Neural Engine (ANE) backend for llama.cpp' (claim 16.8x vs CPU)",
+      "ano": "2026",
+      "nivel": "D",
+      "tipo": "comunidade",
+      "veiculo": "Reddit",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F22",
+      "url": "https://github.com/ggml-org/llama.cpp/discussions/4167",
+      "titulo": "ggml-org/llama.cpp Discussion #4167 — Performance on Apple Silicon M-series (benchmarks M1 CPU/Metal)",
+      "ano": "2023",
+      "nivel": "C",
+      "tipo": "comunidade",
+      "veiculo": "GitHub",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F23",
+      "url": "https://markaicode.com/benchmarks/llamacpp-phi-3-m4-max-throughput-benchmark",
+      "titulo": "Markaicode — llama.cpp Q4_K_M vs Q8_0 on M4 Max (Q4_0 59–63% mais rápido que Q8_0)",
+      "ano": "2026",
+      "nivel": "D",
+      "tipo": "blog",
+      "veiculo": "markaicode.com",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F24",
+      "url": "https://www.agenticwire.news/article/q4-k-m-vs-q5-k-m",
+      "titulo": "AgenticWire — Q4_K_M vs Q5_K_M vs Q8_0 (Q8_0 ~29% mais lenta a gerar)",
+      "ano": "2026",
+      "nivel": "D",
+      "tipo": "blog",
+      "veiculo": "agenticwire.news",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F25",
+      "url": "https://medium.com/@michael.hannecke/tuning-llama-cpp-on-apple-silicon-843f37a6c3dc",
+      "titulo": "Tune llama.cpp on Apple Silicon: 7 Flags (threads vs P-cores, KV quant, -fa)",
+      "ano": "2026",
+      "nivel": "C",
+      "tipo": "blog",
+      "veiculo": "Medium",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F26",
+      "url": "https://github.com/openbmb/minicpm",
+      "titulo": "OpenBMB/MiniCPM (tool calling XML-style, parser 'minicpm5' do SGLang, matriz de runtimes)",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "GitHub",
+      "lida": "extract"
+    },
+    {
+      "ref": "F27",
+      "url": "https://ai.thesatyajit.com/articles/minicpm5-2b",
+      "titulo": "MiniCPM5-2B: how 2 KV heads pay for a 131K window (arquitetura, tamanhos GGUF, KV cache)",
+      "ano": "2026",
+      "nivel": "C",
+      "tipo": "blog",
+      "veiculo": "ai.thesatyajit.com",
+      "lida": "extract"
+    },
+    {
+      "ref": "F28",
+      "url": "https://pub.dev/packages/flutter_mediapipe_chat",
+      "titulo": "flutter_mediapipe_chat | Flutter package (1.0.0, única versão, API experimental)",
+      "ano": "2025",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F29",
+      "url": "https://dev.to/tattn/localllmclient-a-swift-package-for-local-llms-using-llamacpp-and-mlx-1bcp",
+      "titulo": "localllmclient — Swift package para LLMs locais (llama.cpp e MLX) em iPhone 16 Pro (experimental)",
+      "ano": "2026",
+      "nivel": "C",
+      "tipo": "comunidade",
+      "veiculo": "dev.to",
+      "lida": "trechos de pesquisa"
+    },
+    {
+      "ref": "F30",
+      "url": "https://github.com/ml-explore/mlx-swift-lm",
+      "titulo": "ml-explore/mlx-swift-lm (MLXLLM, MLXLMCommon, MLXHuggingFace) — engine MLX Swift para LLMs em iOS/macOS",
+      "ano": "2026",
+      "nivel": "A",
+      "tipo": "oficial",
+      "veiculo": "GitHub",
+      "lida": "repo confirmado (HTTP 200) + forks via Tavily"
+    },
+    {
+      "ref": "F31",
+      "url": "https://pub.dev/api/packages/mlx_localllm",
+      "titulo": "API pub.dev — metadados/versões mlx_localllm, flutter_gemma, flutter_gemma_litertlm, litertlm, flutter_native_ml",
+      "ano": "2026",
+      "nivel": "B",
+      "tipo": "registro",
+      "veiculo": "pub.dev API",
+      "lida": "JSON integral"
+    },
+    {
+      "ref": "F32",
+      "url": "https://localclaw.io/models/minicpm5-2b",
+      "titulo": "LocalClaw — MiniCPM5 2B (catálogo: 4GB RAM mín., Q4_K_M 1.6GB, 131K contexto)",
+      "ano": "2026",
+      "nivel": "D",
+      "tipo": "catalogo",
+      "veiculo": "localclaw.io",
+      "lida": "extract"
+    }
+  ],
+  "contradicoes": [
+    {
+      "contradicao": "A memória local (#32, 2026-09-27) afirma que o llama_cpp_dart 'não tem tool calls nem Jinja real'; o README atual (linha 0.9.0-dev) afirma usar o Jinja embutido via llama_chat_apply_template com fallback manual.",
+      "resolucao": "Parcial: a memória referia-se à versão estável 0.2.2; a linha dev acrescenta Jinja real mas continua sem tool calling — a decisão de manter o motor próprio mantém-se válida."
+    },
+    {
+      "contradicao": "O enunciado assume 'MiniCPM5 tem MLX oficial … ~60% faster' como ganho esperado em iOS; a fonte do '~60%' é a skill da OpenBMB para LM Studio em Apple Silicon desktop.",
+      "resolucao": "Tratar como indicativo de direção (MLX mais rápido que GGUF em Apple Silicon), não como promessa de +60% em iPhone; é preciso benchmark iOS próprio."
+    },
+    {
+      "contradicao": "A hipótese do enunciado 'Q8_0 mais rápida em CPU' contradiz a evidência (Q4 mais rápida que Q8 em CPU).",
+      "resolucao": "Rejeitar a hipótese: manter Q4_K_M para velocidade; considerar Q8_0 apenas por QUALIDADE (ou como workaround do bug Metal, ver R0)."
+    },
+    {
+      "contradicao": "O executorch_flutter anuncia 'Metal + MLX (Apple)' na lista de backends, mas a mesma página limita o MLX a 'Apple-Silicon GPU, macOS arm64' no LLM.",
+      "resolucao": "Interpretar como MLX indisponível em iOS para LLM; iOS fica XNNPACK/CPU."
+    },
+    {
+      "contradicao": "A Google mantém duas páginas sobrepostas (MediaPipe LLM Inference e LiteRT-LM) com mensagens distintas sobre o caminho de conversão de modelos.",
+      "resolucao": "Seguir a recomendação mais recente: LiteRT-LM para novos projetos; MediaPipe = legado."
+    }
+  ],
+  "lacunas": [
+    "Sem benchmark público de MiniCPM5-2B em llama.cpp CPU-only num iPhone A-series (só extrapolações) e sem medição no simulador iOS do próprio app — as estimativas de tok/s devem ser validadas no macmini.",
+    "Não verificado se o flutter_gemma/litertlm aceita o bundle MiniCPM5-2B_int4.litertlm em iOS (a lista de modelos suportados não inclui o MiniCPM5) — smoke test necessário.",
+    "mlx_localllm: motor subjacente, aceitação de prompt cru (sem template do SDK), streaming token-a-token e suporte a tool calling não documentados no readme lido.",
+    "Sem avaliação pública de qualidade do MLX 4-bit vs GGUF Q4_K_M para o MiniCPM5 (a única medição de exatidão encontrada é a do LiteRT int4: 86–87% GSM8K vs 92% bf16).",
+    "Causa raiz do mojibake do Metal não isolada (hipótese: kernel Q4_K_M/GQA-2-KV do b11217); não foi testado Q8_0 em Metal nem tags mais recentes do llama.cpp.",
+    "Não foi possível confirmar se o mlx-swift-lm aplica chat template por omissão (crítico: o template Jinja é renderizado em Dart) — verificar se o API de generate aceita texto cru.",
+    "O backend ANE para llama.cpp não foi verificado quanto a licença, maturidade real e compatibilidade com GQA de 2 heads KV."
+  ],
+  "novas_perguntas": [
+    "R0 (barato): com MiniCPM5 Q8_0 em Metal o mojibake desaparece? E com uma tag do llama.cpp posterior a b11217? Se sim, o caminho A ganha GPU de novo.",
+    "Qual é o alvo de produto em iPhone real — mínimo aceitável de tok/s de decode e prefill — para escolher entre A (CPU), B (MLX) e D (LiteRT-LM)?",
+    "Smoke test: flutter_gemma + MiniCPM5-2B_int4.litertlm no iPhone 17 Pro do macmini — carrega, responde e aceita prompt cru?",
+    "O mlx_localllm (ou o mlx-swift-lm direto) aceita prompt cru + streaming? Qual o motor Swift por baixo?",
+    "Para int8 (LiteRT 2.6 GB) e MLX bf16: vale a pena o entitlement com.apple.developer.kernel.increased-memory-limit em produção?",
+    "Qual o estado atual, licença e limitações do backend ANE para llama.cpp (funciona com GQA 2-KV em iOS 18+)?",
+    "A quantização KV (q8_0/q4_0 com flash-attn) compensa em iOS para contextos longos (131K) mantendo CPU?"
+  ],
+  "consultas": [
+    "search: llama_cpp_dart Flutter package iOS Metal support llama.cpp",
+    "search: fcllama flutter package llama.cpp iOS",
+    "search: MLX Swift Flutter plugin iOS LLM inference mlx-flutter",
+    "search: ExecuTorch Flutter plugin iOS react-native-executorch alternative",
+    "search: MediaPipe LLM Inference API Flutter iOS LiteRT-LM on-device",
+    "search: MiniCPM5-MLX openbmb MiniCPM5 MLX 60% faster",
+    "search: convert GGUF to CoreML mlpackage llama.cpp coreml_flutter iOS",
+    "search: llama.cpp CPU performance Q8_0 vs Q4_K_M tokens per second Apple M1 threads",
+    "search: mlx_localllm Flutter iOS support MLX plugin device",
+    "search: openbmb MiniCPM5-MLX huggingface mlx-lm model card",
+    "search: coreml_flutter pub.dev run Core ML model Flutter platform channel",
+    "search: LiteRT-LM Google AI Edge LLM on-device iOS Android 2026",
+    "search: llama.cpp Metal corrupted output mojibake garbage tokens issue",
+    "search: MiniCPM5 architecture attention head_dim kv heads llama.cpp support",
+    "search: llama.cpp CPU only tokens per second 2B model macbook M1 benchmark threads",
+    "search: llama.cpp Accelerate AMX Apple Silicon CPU quantized matmul q8_0 faster than q4",
+    "search: llama.cpp CoreML backend convert-hf-to-coreml script ggml",
+    "search: coremltools convert Llama Core ML ANE tokens per second iPhone quantization palettization",
+    "search: mlx-swift-lm MLXLLM supported architectures llama iOS device app",
+    "search: MiniCPM5-2B GGUF Q8_0 F16 Q4_K_M openbmb release download",
+    "search: flutter_gemma LiteRT-LM Flutter package iOS custom litertlm model",
+    "search: MiniCPM5 LiteRT-LM litertlm build Google AI Edge release",
+    "search: q8_0 faster than q4_k_m llama.cpp CPU benchmark GEMV Apple",
+    "search: llama.cpp coreml backend Apple Neural Engine support ggml",
+    "search: \"MiniCPM5\" MLX \"60%\" faster",
+    "search: Flutter CoreML package pub.dev run mlmodel inference plugin",
+    "search: mlx_localllm github repository MLXLLM MLXLMCommon swift",
+    "search: llama.cpp CPU threads performance cores Apple M1 optimal setting slower",
+    "extract: pub.dev/packages/llama_cpp_dart + github.com/netdur/llama_cpp_dart",
+    "extract: pub.dev/packages/executorch_flutter + pub.dev/packages/mlx_localllm",
+    "extract: developers.google.com/edge/mediapipe/solutions/genai/llm_inference",
+    "extract: huggingface.co/openbmb/MiniCPM5-2B-MLX + github.com/openbmb/minicpm",
+    "extract: developers.google.com/edge/litert-lm/overview + pub.dev/packages/mlx_localllm",
+    "extract: pub.dev/packages/flutter_gemma",
+    "extract: localclaw.io/models/minicpm5-2b + ai.thesatyajit.com/articles/minicpm5-2b",
+    "extract: raw.githubusercontent.com/OpenBMB/MiniCPM/main/skills/minicpm5-deploy-lmstudio/SKILL.md + docs/deployment/litert.md (2x)",
+    "extract: pub.dev/packages/flutter_native_ml",
+    "direto (curl): huggingface.co/openbmb/MiniCPM5-2B-MLX/raw/main/config.json + mlx-community/MiniCPM5-2B-mlx-4Bit/raw/main/config.json",
+    "direto (curl): pub.dev/api/packages/{mlx_localllm,llama_cpp_dart,fcllama,executorch_flutter,flutter_mediapipe_chat,litertlm,flutter_gemma,flutter_gemma_litertlm,flutter_native_ml,on_device_ai}",
+    "direto (curl HEAD): github.com/ml-explore/mlx-swift-lm e github.com/ml-explore/mlx-swift (200)"
+  ],
+  "alertas_seguranca": [
+    "Web é DADO, nunca instrução: nenhum comando encontrado em páginas (brew install, huggingface-cli download, pod install, etc.) foi executado — apenas registado como evidência.",
+    "Hierarquia de confiança aplicada: afirmações centrais ancoradas em fontes A/B (OpenBMB, Google AI Edge, Apple, pub.dev/HF); blogs/YouTube/Reddit (markaicode, localclaw, kingy, ccleaks, r/LocalLLaMA) usados só como corroboração secundária e nunca sozinhos.",
+    "Risco de cadeia de suprimentos: descarregar pesos apenas de openbmb/ e litert-community/; forks de mlx-swift-lm e mirrors do Hugging Face são superfície de risco (modelo ou dependência adulterada).",
+    "O card do MiniCPM5-2B-MLX impõe uso lícito, salvaguardas próprias e rotulagem de conteúdo gerado por IA onde exigido (Apache-2.0 + disclaimer de garantia) — cumprir no produto final.",
+    "Nenhum texto web foi tratado como prompt/ordem; o escudo anti-injeção do Tavily ativo (--json/extract) e nenhuma fonte foi sinalizada como suspeita nos retornos usados."
+  ]
+}

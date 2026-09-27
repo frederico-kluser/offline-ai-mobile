@@ -447,15 +447,20 @@ class _Worker {
       b.backendInit();
 
       // Model params: defaults (mmap ON por defeito) + camadas de GPU.
-      // Semantica C API: negativo = TODAS as camadas na GPU. Apple (Metal):
-      // usar o valor do config tal-e-qual (-1 = offload completo). Android:
-      // negativo vira 0 (shaders Vulkan so otimizados para Adreno; CPU e o
-      // caminho estavel — forcar GPU com N>=1 no config).
+      // Semantica C API: negativo = TODAS as camadas na GPU.
+      //  - Apple REAL (Metal): usar tal-e-qual (-1 = offload completo; saída
+      //    correta verificada no macOS nativo com este GGUF).
+      //  - iOS SIMULATOR: Metal incompleto (Apple docs; llama.rn; ggml #19563)
+      //    => mojibake obrigatório; cai para CPU automaticamente.
+      //  - Android: negativo vira 0 (shaders Vulkan só Adreno; CPU estável).
       final mp = b.modelDefaultParams();
+      final onSimulator = Platform.isIOS &&
+          Platform.environment.containsKey('SIMULATOR_DEVICE_NAME');
       final wantsAll = cfg.gpuLayers < 0;
-      mp.nGpuLayers = Platform.isAndroid
+      final useGpuLayers = (Platform.isAndroid || onSimulator)
           ? (wantsAll ? 0 : cfg.gpuLayers)
           : cfg.gpuLayers;
+      mp.nGpuLayers = useGpuLayers;
 
       final pathPtr = _utf8z(path);
       model = b.modelLoadFromFile(pathPtr, mp);
@@ -472,10 +477,10 @@ class _Worker {
       nVocab = b.vocabNTokens(vocab);
 
       // Context params: defaults + contexto/threads/batch do config.
-      // Flash Attention: ENABLED em Apple (recomendado com Metal) e AUTO nos
-      // restantes (enum llama_flash_attn_type: -1 auto, 0 off, 1 on).
+      // Flash Attention: ENABLED quando há GPU Apple ativa (verificado no
+      // macOS com saída correta); AUTO nos restantes (enum: -1/0/1).
       final cp = b.contextDefaultParams();
-      if (Platform.isIOS || Platform.isMacOS) {
+      if ((Platform.isIOS || Platform.isMacOS) && useGpuLayers != 0) {
       }
       nCtx = cfg.contextSize;
       cp.nCtx = nCtx;

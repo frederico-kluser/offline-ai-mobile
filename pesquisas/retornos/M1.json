@@ -1,0 +1,230 @@
+{
+  "id": "M1",
+  "estado": "concluido",
+  "confianca": "media-alta (0,7) — evidencia primaria solida para as causas upstream conhecidas; a causa EXATA do mojibake do MiniCPM5 permanece hipotese a validar por experimentos discriminadores",
+  "resposta": "RESUMO EXECUTIVO: o bug observado (mojibake multibloco CJK/cirílico/kana com n_gpu_layers=-1 em llama.cpp b11217/Metal, idêntico com flash-attn ON e OFF, correto em CPU) NAO corresponde a nenhum problema de flash attention (confirmado pelo vosso teste de variável única e corroborado por upstream: os bugs de FA têm triggers próprios). As causas upstream documentadas de saída degenerada no backend Metal agrupam-se em 4 classes: (A) aritmética de offsets int32 que dá wrap em buffers grandes (PR #28210 'ggml-metal: fix int32 overflow in kernel_mul_mm batched dst offsets (deep-context corruption)' — colapso para token infinito em deep context; workaround '-ub 128'; NAO explica o nosso caso porque exige compute buffers acima de 2^31 bytes, incompatível com 2,5B/ctx 8k); (B) bounds de máscara errados no pre-pass do FA (commit fb34fc262 / PR #29220 'metal : fix mask bounds in flash attention block pre-pass', 2026-09-21, corrigido ANTES de b11217 e só ativo com FA — excluído pelo vosso teste); (C) kernels de redução/norm com simdgroup parcial (PR #26708, merged 2026-08-07, média/variância erradas por linha — incluído antes de b11217); (D) BUGS DO COMPILADOR JIT DO METAL: há um bug documentado e reproduzido (liamdrew.com, nov/2025) em que o JIT do GPU backend gera código errado para o padrão de divisão inteira rápida (magic multiply-shift de x/D e x%D) dentro de um branch condicional usado como endereço de load — o load devolve 0 para certos inputs; o tinygrad marca os testes TestFastIdiv como skip no METAL ('compiler bug'). Os kernels de dequant Q4_K (get_rows_q4_K / mul_mv_q4_K / mul_mm_q4_K) calculam índices de bloco (QK_K=256) precisamente com divisão/resto por constantes dentro de bounds checks — padrão-alvo exato desse bug. HIPÓTESE PRINCIPAL para o nosso sintoma: corrupção de valores desquantizados/loads nos kernels de dequant+mul_mat Q4_K no JIT do Metal do M1 (via simulador), independente de FA, invisível na CPU. HIPÓTESES ALTERNATIVAS: dispatch de especialização de kernel em falta (classe demonstrada: #21662 mm-id q1_0 em falta; #28741 mul_mv f32×bf16 em falta); bug específico do simulador iOS (ver P4). SOBRE FIXES POS-B11217: NAO foi encontrado nenhum PR/commit pós-b11217 que declare corrigir corrupção de geração em contexto curto com Q4_K_M; o único fix de corrupção Metal 'em voo' é o #28210 (trigger deep-context, estado de merge incerto — draft/awaiting review na página do PR, 'closed' no agregador), portanto NAO existe tag mínima comprovada que resolva ESTE sintoma; recomenda-se re-testar em master recente (>= v0.5.0, que contém #29122 'metal : fix FA support checks' e #29220) e, se persistir, abrir issue upstream com repro (candidato já apontado na memória do projeto). P3 FLAGS: as flags GGML_METAL_FORCE_FP32, GGML_METAL_ALLOW_HEAD_BW e GGML_METAL_FLASH_ATTN NAO foram confirmadas como opções CMake/documentadas na árvore upstream verificada (o CMakeLists de ggml/src/ggml-metal só define GGML_METAL_EMBED_LIBRARY e GGML_METAL_NDEBUG; docs/build.md e a doc do backend Metal só documentam GGML_METAL, GGML_METAL_EMBED_LIBRARY, GGML_METAL_SHADER_DEBUG) — podem existir como defines internos dos kernels e devem ser verificadas por grep na árvore b11217 local. Equivalentes funcionais confirmados: '-fa/--flash-attn on|off|auto' (testado — não resolve, coerente com causa fora do FA), '-kvo/--no-kv-offload', '-ctk/-ctv' (KV cache type), '-ot/--override-tensor <regex>=CPU' (bisseção por tensor), '--device none', e no C API llama_model_params.op_offload=false (sem flag CLI confirmada). Um alavanca real de diagnóstico são as opções do compilador MSL ('-fmetal-math-mode=safe', '-fno-fast-math', '-ffp-contract=off' — spec MSL 2026-06-04) aplicadas à compilação do ggml-metal.metal: mudam o código gerado e podem contornar/diagnosticar um bug de JIT. P4 SIMULADOR: a Apple documenta que partes do Metal não funcionam no simulador ('Run the iOS scheme on a physical device because Metal isn't supported in the simulator', doc de Indirect Command Buffers) e há relatos de divergência GPU-vs-CPU em Metal (TensorFlow no fórum Apple); existe também um bug específico de simulador (sandbox bloqueia o shader-cache dir por bundle-id). O simulador usa a GPU do Mac (M1) com o JIT do macOS, pelo que bugs do driver/JIT do M1 aparecem no simulador mas podem não existir num iPhone (GPU A-series, JIT diferente) e vice-versa — NAO há documentado um bug 'mojibake só no simulador'; a discriminação exige correr o mesmo GGUF num device físico. P5 VARIANTE QUE EVITA OS KERNELS SUSPEITOS: (1) manter n_gpu_layers=0 (decisão atual, única config provada correta); (2) para investigar: '--no-kv-offload' + '-ctk f16 -ctv f16' (isola attention/KV dos buffers Metal), '-ub 128' (workaround da classe #28210), '-ot \"(.*)=CPU\"' por tensores (bisseção: primeiro 'output|token_embd', depois 'attn_*', depois 'ffn_*'), op_offload=false via FFI (pesos em GPU, ops em CPU — isola residência vs execução), e GGUF Q8_0/Q5_K_M como controlo (se Q8_0 também corrompe, o bug NAO é do dequant Q4_K e sim de mul_mat/attention/rope/norm ou do JIT); (3) variante de build: GGML_METAL=OFF (referência), ou EMBED_LIBRARY=OFF + GGML_METAL_SHADER_DEBUG=ON (mudam o caminho de compilação dos shaders), ou compilar o .metal com '-fmetal-math-mode=safe -ffp-contract=off' para isolar o fast-math. ROTEIRO RECOMENDADO: 4 testes curtos (device real · Q8_0 · --no-kv-offload/-ub 128 · llama-cli nativo macOS no mesmo Mac) resolvem 80% da incerteza e definem o texto da issue upstream.",
+  "afirmacoes": [
+    {
+      "texto": "A corrupção é independente de flash-attn: Metal+FA ON e Metal+FA OFF produzem lixo idêntico; logo os kernels FA (fa.metal / fa_vec) não são a causa e o defeito está num caminho comum (dequant Q4_K, mul_mat/mul_mv, rope, norm, cpy, offsets de buffer) ou no próprio JIT do Metal.",
+      "fontes": ["S0", "S2"],
+      "citacao_literal": "S0 (experiência controlada local, CoALA #43): \"BUG CONFIRMADO (3 corridas controladas) ... idêntica com flash-attn ON e OFF (FA não é fator). CPU (gpuLayers=0) produz a resposta correta\"",
+      "central": true
+    },
+    {
+      "texto": "Existem bugs upstream documentados de saída degenerada/corrupção no backend Metal do llama.cpp, com triggers distintos: overflow int32 de offsets em kernel_mul_mm batched (deep-context), bounds de máscara no pre-pass do flash attention, e reduções NORM/RMS_NORM com simdgroup parcial.",
+      "fontes": ["S1", "S2", "S3"],
+      "citacao_literal": "S1 (PR #28210): \"GLM-5.3-Flash ... collapses to an infinite @ (token 31) from the first sampled token once a joint (depth, n_ubatch, n_ctx) threshold is crossed on Metal\" / \"'-ub 128' is the workaround in the wild for affected models\"; S2 (commit fb34fc262): \"metal : fix mask bounds in flash attention block pre-pass (#29220) ... char res = i0*C + C > args.ne30 || i1*Q + Q > args.ne31 ? 1 : 0\"",
+      "central": true
+    },
+    {
+      "texto": "Nenhum desses três bugs explica o caso MiniCPM5: o #28210 só dispara com compute buffers acima de 2^31 bytes (deep context com KV grande; incompatível com 2,5B / 42 camadas / GQA 2-KV / ctx ~8k), o fix fb34fc262/#29220 é FA-dependente e anterior a b11217, e o #26708 (NORM) foi merged a 2026-08-07, também anterior a b11217.",
+      "fontes": ["S1", "S2", "S3"],
+      "citacao_literal": "S1: \"crossing the 13 GiB f32 mark deep into context\" / \"This PR promotes the offset arithmetic to uint64_t at the three affected sites. Three lines, no functional change below 2^31.\"",
+      "central": true
+    },
+    {
+      "texto": "HIPÓTESE PRINCIPAL: o compilador JIT do Metal tem um bug documentado que gera código errado para divisão inteira rápida (magic multiply-shift) usada como endereço de load dentro de um branch — o load devolve 0 para certos inputs; os kernels de dequant Q4_K do ggml-metal calculam índices de bloco/restos com exatamente esse padrão, o que casaria com Q4_K_M corrompido em GPU e correto em CPU, independente de FA.",
+      "fontes": ["S7", "S12"],
+      "citacao_literal": "S7: \"the Metal GPU compiler ... produces incorrect results for a specific LLVM IR pattern ... this computation occurs inside a conditional branch used as a buffer load address, the load returns 0 instead of the correct value for certain inputs\"; tinygrad: \"# @unittest.skipIf(Device.DEFAULT == \\\"METAL\\\", \\\"compiler bug\\\")\" sobre TestFastIdiv",
+      "central": true
+    },
+    {
+      "texto": "Não há (na evidência recolhida) nenhum fix upstream pós-b11217 que corrija corrupção de geração em contexto curto com quantização K: o único fix de corrupção Metal pendente é o #28210, com trigger de deep-context e estado de merge incerto; portanto não existe tag mínima comprovada para este sintoma e o caminho correto é repro + issue upstream.",
+      "fontes": ["S1", "S2", "S15", "S16", "S20"],
+      "citacao_literal": "S1: \"Successfully merging this pull request may close these issues\" / \"ggerganov ... will be requested when the pull request is marked ready for review\" (PR ainda não em review); S20 (agregador) lista #28210 como \"Pull Request - State: closed\" — estados contraditórios, ver contradicoes",
+      "central": true
+    },
+    {
+      "texto": "O simulador iOS tem limitações/diferenças de Metal documentadas pela Apple (recomendação explícita de usar device físico porque 'Metal isn't supported in the simulator' para features de compute indireto) e bug próprio conhecido de shader-cache bloqueado por sandbox; a GPU usada é a do Mac (M1) com o JIT do macOS, pelo que bugs de compilador/driver do M1 podem manifestar-se no simulador e não num device real (GPU A-series) — mas NÃO há documentado um bug 'mojibake/garbage apenas no simulador' para inferência LLM.",
+      "fontes": ["S8", "S13", "S14"],
+      "citacao_literal": "S8 (Apple docs): \"Run the iOS scheme on a physical device because Metal isn't supported in the simulator.\"; S13 (Apple Developer Forums): \"Tensorflow produces different (wrong) results when performing the inference using the Metal pluggable device GPU vs when performing it in the CPU.\"",
+      "central": true
+    },
+    {
+      "texto": "As flags GGML_METAL_FORCE_FP32, GGML_METAL_ALLOW_HEAD_BW e GGML_METAL_FLASH_ATTN não estão confirmadas como opções de build oficiais: o CMakeLists do backend Metal só acrescenta os defines GGML_METAL_EMBED_LIBRARY e GGML_METAL_NDEBUG, e a documentação só lista GGML_METAL, GGML_METAL_EMBED_LIBRARY e GGML_METAL_SHADER_DEBUG; o controlo de kernels faz-se por runtime (-fa, --no-kv-offload, -ctk/-ctv, -ot, --device) e pelas opções do compilador MSL.",
+      "fontes": ["S10", "S11", "S12"],
+      "citacao_literal": "S12 (ggml/src/ggml-metal/CMakeLists.txt): \"if (GGML_METAL_EMBED_LIBRARY) ... add_compile_definitions(GGML_METAL_EMBED_LIBRARY)\" e \"if (GGML_METAL_NDEBUG) add_compile_definitions(GGML_METAL_NDEBUG) endif()\" — nenhum GGML_METAL_FORCE_FP32/ALLOW_HEAD_BW/FLASH_ATTN no CMake",
+      "central": true
+    },
+    {
+      "texto": "A questão 'MPS vs Metal' é um falso dilema para o llama.cpp: o backend Metal usa kernels MSL próprios (mul_mat, dequant, fa) e não Metal Performance Shaders/MPSGraph; MPS só aparecia em logs de 2023 e não é caminho de computação atual.",
+      "fontes": ["S12", "S17"],
+      "citacao_literal": "S17: \"llama.cpp's Metal backend ... is a set of hand-written Metal Shading Language kernels that execute the GGML compute graph on the GPU through Apple's Metal API. MLX ... goes through Metal Performance Shaders Graph (MPSGraph)\"",
+      "central": false
+    },
+    {
+      "texto": "A classe 'especialização de kernel em falta' existe no backend Metal e produz anomalias de execução (ex.: kernel_mul_mv_f32_bf16 nunca instanciado para convs bf16 — #28741; specializations mm-id em falta para q1_0 — #21662), o que mantém viável a hipótese de dispatch errado para GQA 16Q/2KV com head_dim 128 em b11217.",
+      "fontes": ["S15", "S16", "S18"],
+      "citacao_literal": "S16 (v0.5.0 commit list): \"metal: add the missing f32 x bf16 mul_mv variants ( ... kernel_mul_mv_f32_bf16, which was never instantiated\"; S15: \"Metal: add missing mm-id specializations for q1_0 (#21662)\"",
+      "central": false
+    },
+    {
+      "texto": "O teste discriminador mais barato é trocar o GGUF para Q8_0 (ou Q5_K_M) no mesmo build/simulador: se Q8_0 também corromper, o defeito não está no dequant Q4_K e passa a ser procurado em mul_mat/mul_mv genéricos, rope, norm, offsets ou JIT; se Q8_0 estiver correto, o alvo são os kernels q4_K.",
+      "fontes": ["S12", "S7"],
+      "citacao_literal": "S12 (CMakeLists): kernel kinds separados incluem \"kernels/dequantize.h\", \"kernels/quantize.h\" e fontes mul/mul_mv separadas — caminhos de kernel distintos por tipo",
+      "central": true
+    }
+  ],
+  "fixes": [
+    {
+      "tipo": "fix",
+      "descricao": "PR #28210 'ggml-metal: fix int32 overflow in kernel_mul_mm batched dst offsets (deep-context corruption)': promove a aritmética de offsets a uint64_t em 3 pontos de kernel_mul_mm; corrige colapso de geração (token infinito) em deep context. NÃO resolve o caso MiniCPM5 (trigger exige buffers >2^31 bytes) e o estado de merge não está confirmado.",
+      "evidencia": "Texto do PR: 'This PR promotes the offset arithmetic to uint64_t at the three affected sites. Three lines, no functional change below 2^31.' / 'GLM-5.3-Flash ... collapses to an infinite @ (token 31) ... e.g. a 108,710-token prompt at -c 131072 -ub 512'; equivalente CUDA/Vulkan já usa indexação larga ('Metal was the outlier').",
+      "fontes": ["S1", "S20"]
+    },
+    {
+      "tipo": "fix",
+      "descricao": "Commit fb34fc262 / PR #29220 'metal : fix mask bounds in flash attention block pre-pass' (2026-09-21, Foad Abo Dahood): acrescenta '|| i1*Q + Q > args.ne31' ao bounds check da máscara em kernel_flash_attn_ext_blk (fa.metal). Corrige leituras fora de bounds da máscara no pre-pass FA. Só afeta caminho FA e é ANTERIOR a b11217 (já incluído).",
+      "evidencia": "Diff do commit: '- char res = i0*C + C > args.ne30 ? 1 : 0; + char res = i0*C + C > args.ne30 || i1*Q + Q > args.ne31 ? 1 : 0;' em ggml/src/ggml-metal/kernels/fa.metal.",
+      "fontes": ["S2"]
+    },
+    {
+      "tipo": "fix",
+      "descricao": "PR #26708 'metal : fix NORM/RMS_NORM for row lengths that leave a partial simdgroup' (merged 2026-08-07, a194a75): o threadgroup deixava um simdgroup parcial e somas parciais eram descartadas — média/variância erradas para a linha inteira (saída errada sem crash). Já incluído antes de b11217.",
+      "evidencia": "Descrição do PR: 'when the last simdgroup is partial ... the tail of the partial sums is never read and the row sum is too small ... the mean and variance are wrong for the whole row.'",
+      "fontes": ["S3"]
+    },
+    {
+      "tipo": "tag",
+      "descricao": "Tag mínima recomendada: NENHUMA comprovada para este sintoma. Para a classe deep-context, o fix é o #28210 (quando/ se merged). Para o sintoma atual, re-testar em master recente (>= v0.5.0, que contém #29122 'metal : fix FA support checks' e #29220) apenas para excluir regressões já corrigidas; se persistir, manter gpuLayers=0 (default atual) e abrir issue upstream com repro. Nota: b11172/b11177 saíram em 2026-09-24/25, logo b11217 é de ~2026-09-26+ e fb34fc262 (21/09) já está dentro.",
+      "evidencia": "Releases page (llama-b11172 assets 2026-09-24T23:37Z; llama-b11177 2026-09-25T05:57Z); commit fb34fc262 datado 'Mon Sep 21 20:31:56 2026'; lista de commits v0.5.0 inclui 60b06ab9a 'metal : fix FA support checks (#29122)' e fb34fc262.",
+      "fontes": ["S2", "S9", "S16"]
+    },
+    {
+      "tipo": "flag",
+      "descricao": "Runtime confirmado no llama.cpp atual: '-fa/--flash-attn on|off|auto', '-kvo/--kv-offload / -nkvo/--no-kv-offload', '-ctk/-ctv <type>' (tipo do KV cache), '-ot/--override-tensor <regex>=CPU', '--device none', '-b/-ub'. O -fa off JÁ FOI TESTADO e não resolve (esperado, se a causa for dequant/mul_mat). --no-kv-offload + -ctk f16 -ctv f16 isola a attention dos buffers de KV Metal.",
+      "evidencia": "man llama-server (Debian unstable): '-fa, --flash-attn [on|off|auto]', '-kvo, --kv-offload, -nkvo, --no-kv-offload', '-ot, --override-tensor <tensor name pattern>=<buffer type>', '-ub, --ubatch-size N (default: 512)'.",
+      "fontes": ["S13b", "S19"]
+    },
+    {
+      "tipo": "flag",
+      "descricao": "Opções de build Metal confirmadas: GGML_METAL=ON/OFF, GGML_METAL_EMBED_LIBRARY=ON (metallib embutido por 'kind' — fa/fa_aux/fa_vec/mul/mul_mv/dequantize/quantize/...), GGML_METAL_SHADER_DEBUG=ON, GGML_METAL_NDEBUG. As sugeridas GGML_METAL_FORCE_FP32 / GGML_METAL_ALLOW_HEAD_BW / GGML_METAL_FLASH_ATTN NÃO foram encontradas no CMake nem na documentação — verificar por grep na árvore b11217 local antes de as usar; não prometem resolver corrupção.",
+      "evidencia": "docs/build.md (Metal Build: '-DGGML_METAL=OFF'); ggml Metal backend docs (GGML_METAL_EMBED_LIBRARY, GGML_METAL_SHADER_DEBUG); CMakeLists do ggml-metal (defines GGML_METAL_EMBED_LIBRARY, GGML_METAL_NDEBUG).",
+      "fontes": ["S10", "S11", "S12"]
+    },
+    {
+      "tipo": "flag",
+      "descricao": "Opções do compilador MSL aplicáveis à compilação do ggml-metal.metal: '-fmetal-math-mode=safe' / '-fno-fast-math' e '-ffp-contract=off' alteram fast-math e contracções FMA dos kernels — úteis como diagnóstico/contorno se o problema for numérico/JIT (o build do llama-cpp-python compila com 'xcrun metal -O3'; mudar esta linha muda o código gerado). GGML_METAL_SHADER_DEBUG=ON também muda o processo de compilação.",
+      "evidencia": "Metal Shading Language Specification (2026-06-04): '-fno-fast-math Equivalent to -fmetal-math-fp32-functions=precise and -fmetal-math-mode=safe'; 'To disable allowing the compiler to contractions, pass ... -ffp-contract=off'.",
+      "fontes": ["S11b", "S12"]
+    },
+    {
+      "tipo": "workaround",
+      "descricao": "'-ub 128' (ubatch reduzido) é o workaround da comunidade para a classe de overflow #28210 ('keeps h·ub·n_kv < 2^31 longer'). Barato de testar no nosso caso, ainda que o trigger seja improvável à escala do MiniCPM5.",
+      "evidencia": "PR #28210: \"'-ub 128' is the workaround in the wild for affected models\"; issue #28360 mostra o mesmo padrão (funciona com -b 128 -ub 128, falha com -b/-ub 1024) num caso GLM/RPC.",
+      "fontes": ["S1", "S20b"]
+    },
+    {
+      "tipo": "workaround",
+      "descricao": "Bisseção por tensor com '-ot \"<regex>=CPU\"' (ou op_offload=false no C API de llama_model_params): começar por 'output|token_embd' (se o mojibake desaparece com output em CPU, o defeito está no mul_mat do output), depois 'blk\\..*\\.attn_', depois 'ffn_'. Com op_offload=false mantêm-se os pesos no buffer Metal mas as ops correm no CPU decomp — isola 'residência de buffer' vs 'execução de kernel'.",
+      "evidencia": "Discussion #13154 (uso de -ot/override-tensors com enumeração de nomes de tensores via '-ot \".=CPU\" -v'); man llama-server (-ot, --override-tensor).",
+      "fontes": ["S19", "S13b"]
+    },
+    {
+      "tipo": "workaround",
+      "descricao": "Controlo discriminador por quantização: correr o mesmo prompt com MiniCPM5-2B Q8_0 (e Q5_K_M) em Metal. Q8_0 tem dequant trivial (sem super-blocos/scales aninhados como o Q4_K): se Q8_0 estiver correto e Q4_K_M corrompido, o alvo são os kernels dequant/mul_*_q4_K; se ambos corromperem, procurar em mul_mat/mul_mv genéricos, rope/norm/softmax, offsets ou JIT do Metal.",
+      "evidencia": "Árvore de kernels do ggml-metal separa fontes por tipo (kernels/dequantize.h, kernels/quantize.h, mul.metal, mul_mv.metal) — caminhos de código distintos por quantização; variante Q8_0 já disponível no repo bartowski/openbmb (memória local #18).",
+      "fontes": ["S12", "S0"]
+    },
+    {
+      "tipo": "workaround",
+      "descricao": "Variante de build para evitar os kernels suspeitos: (a) GGML_METAL=OFF ou n_gpu_layers=0 (referência correta — mantida como default do produto); (b) GGML_METAL_EMBED_LIBRARY=OFF + GGML_METAL_SHADER_DEBUG=ON (mudam o caminho de compilação/carga do metallib; o bug do JIT do fast-idiv pode ou não reproduzir com outro pipeline de compilação); (c) compilar o fonte .metal com '-fmetal-math-mode=safe -ffp-contract=off'. Nenhuma destas é garantida — são variações de diagnóstico.",
+      "evidencia": "bug do JIT do Metal ocorre na conversão AIR→máquina do GPU backend (S7), portanto pode sobreviver a EMBED_LIBRARY; variar o processo de compilação é a alavanca disponível.",
+      "fontes": ["S7", "S11", "S12"]
+    },
+    {
+      "tipo": "workaround",
+      "descricao": "Discriminação simulador vs device: correr o mesmo XCFramework/GGUF num iPhone/iPad físico e, em paralelo, o mesmo build em llama-cli nativo macOS no Mac mini M1. Se o nativo macOS corromper igualmente → bug do backend/JIT do M1 (issue upstream forte); se só o simulador corromper → classe simulador (Apple); se só iOS corromper → classe iOS (deployment target, metallib, residency sets).",
+      "evidencia": "Apple docs recomendam device físico para Metal compute; o simulador usa a GPU do Mac com JIT do macOS; relatos de divergência Metal GPU vs CPU existem (S13).",
+      "fontes": ["S8", "S13", "S14"]
+    }
+  ],
+  "fontes": [
+    {"ref": "S0", "url": "file://~/.local CoALA offline-ai-mobile (registo #43)", "titulo": "Experiência controlada local: bug Metal llama.cpp b11217 (CoALA memory #43)", "ano": 2026, "nivel": "A- (dado experimental local verificado, 3 corridas)", "tipo": "dado local"},
+    {"ref": "S1", "url": "https://github.com/ggml-org/llama.cpp/pull/28210", "titulo": "PR #28210 — ggml-metal: fix int32 overflow in kernel_mul_mm batched dst offsets (deep-context corruption)", "ano": 2026, "nivel": "A", "tipo": "PR upstream (primário)"},
+    {"ref": "S2", "url": "https://gitnews.jcloud.no?a=diff&package=llama.cpp&commit=fb34fc262", "titulo": "Commit fb34fc262 — metal : fix mask bounds in flash attention block pre-pass (#29220)", "ano": 2026, "nivel": "A (espelho do commit upstream)", "tipo": "commit (primário)"},
+    {"ref": "S3", "url": "https://github.com/ggml-org/llama.cpp/pull/26708", "titulo": "PR #26708 — metal : fix NORM/RMS_NORM for row lengths that leave a partial simdgroup", "ano": 2026, "nivel": "A", "tipo": "PR upstream (primário)"},
+    {"ref": "S4", "url": "https://github.com/ggml-org/llama.cpp/issues/21450", "titulo": "Issue #21450 — Eval bug: Metal fails mixed quantized KV on Apple Silicon when Flash Attention is unavailable", "ano": 2026, "nivel": "A", "tipo": "issue upstream (primário)"},
+    {"ref": "S5", "url": "https://github.com/ggml-org/llama.cpp/issues/28357", "titulo": "Issue #28357 — heap corruption with Qwen3-Embedding-0.6B on macOS 26 + Metal (relacionado #23072)", "ano": 2026, "nivel": "A", "tipo": "issue upstream (primário)"},
+    {"ref": "S6", "url": "https://github.com/ggml-org/llama.cpp/issues/18568", "titulo": "Issue #18568 — Bug: Metal SIGBUS after ~400 embeddings on ARM64 macOS", "ano": 2026, "nivel": "A", "tipo": "issue upstream (primário)"},
+    {"ref": "S7", "url": "http://liamdrew.com/jekyll/update/2025/11/29/apple-gpu-bug.html", "titulo": "Finding a bug in Apple's Metal Shader compiler (mul i32 X, 536870907 inside conditional branch → load returns 0)", "ano": 2025, "nivel": "B (blog técnico com repro mínimo verificável)", "tipo": "blog técnico / repro"},
+    {"ref": "S8", "url": "https://developer.apple.com/documentation/metal/encoding-indirect-command-buffers-on-the-gpu", "titulo": "Apple docs — Encoding indirect command buffers on the GPU ('Metal isn't supported in the simulator')", "ano": 2026, "nivel": "A (documentação oficial do fabricante)", "tipo": "documentação vendor"},
+    {"ref": "S9", "url": "https://github.com/ggml-org/llama.cpp/releases", "titulo": "Releases · ggml-org/llama.cpp (changelog ggml: Metal dequant KV/FA/metallic xcframework)", "ano": 2026, "nivel": "A", "tipo": "release/changelog (primário)"},
+    {"ref": "S10", "url": "https://ggml-org-ggml.mintlify.app/backends/metal", "titulo": "Metal backend — ggml (opções CMake: GGML_METAL, GGML_METAL_EMBED_LIBRARY, GGML_METAL_SHADER_DEBUG)", "ano": 2026, "nivel": "B", "tipo": "documentação"},
+    {"ref": "S11", "url": "https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md", "titulo": "llama.cpp docs/build.md — Metal Build", "ano": 2026, "nivel": "A", "tipo": "documentação upstream"},
+    {"ref": "S11b", "url": "https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf", "titulo": "Metal Shading Language Specification (2026-06-04) — opções -fmetal-math-mode / -fno-fast-math / -ffp-contract", "ano": 2026, "nivel": "A (spec oficial)", "tipo": "documentação vendor"},
+    {"ref": "S12", "url": "https://github.com/ggml-org/llama.cpp/blob/master/ggml/src/ggml-metal/CMakeLists.txt", "titulo": "ggml/src/ggml-metal/CMakeLists.txt (defines EMBED_LIBRARY/NDEBUG; metallib por 'kind' de kernel)", "ano": 2026, "nivel": "A", "tipo": "código-fonte (primário)"},
+    {"ref": "S13", "url": "https://developer.apple.com/forums/tags/metal-cpp", "titulo": "Apple Developer Forums — Metal (TensorFlow Metal: wrong results GPU vs CPU; driver crash M5 Pro)", "ano": 2026, "nivel": "B", "tipo": "fórum vendor"},
+    {"ref": "S13b", "url": "https://manpages.debian.org/unstable/llama.cpp-tools/llama-server.1.en.html", "titulo": "man llama-server — flags runtime (-fa, -kvo/-nkvo, -ot, -ctk/-ctv, -ub)", "ano": 2026, "nivel": "B", "tipo": "manual"},
+    {"ref": "S14", "url": "https://modelfit.io/blog/m5-mac-metal-tensor-api-llama-cpp-fix", "titulo": "M5 Macs and the Metal Tensor API (issue #27473, PR #27461 = build b10734; tensor API disabled for pre-M5)", "ano": 2026, "nivel": "C (blog, cita issues upstream verificáveis)", "tipo": "blog"},
+    {"ref": "S15", "url": "https://github.com/ggml-org/ggml/releases", "titulo": "Releases · ggml-org/ggml — changelog Metal (#27370, #27390, #27438, #28163, #28373; mm-id q1_0 #21662)", "ano": 2026, "nivel": "A", "tipo": "release/changelog (primário)"},
+    {"ref": "S16", "url": "https://sourceforge.net/projects/llama-cpp.mirror/files/v0.5.0", "titulo": "Mirror v0.5.0 — lista de commits (fb34fc262 #29220, 60b06ab9a #29122, mul_mv f32×bf16 #28741)", "ano": 2026, "nivel": "D (espelho não-oficial — verificar no repo oficial)", "tipo": "agregador/espelho"},
+    {"ref": "S17", "url": "https://contracollective.com/blog/llama-cpp-metal-vs-mlx-backend-apple-silicon-2026", "titulo": "llama.cpp Metal Backend vs MLX: Compute Path Comparison (kernels MSL próprios vs MPSGraph)", "ano": 2026, "nivel": "C", "tipo": "blog"},
+    {"ref": "S18", "url": "https://github.com/ggml-org/llama.cpp/pull/28741", "titulo": "PR #28741 — metal: add the missing f32 x bf16 mul_mv variants (kernel nunca instanciado)", "ano": 2026, "nivel": "A (via lista de commits)", "tipo": "PR upstream (primário)"},
+    {"ref": "S19", "url": "https://github.com/ggml-org/llama.cpp/discussions/13154", "titulo": "Discussion #13154 — uso de -ot / --override-tensor (bisseção de tensores para CPU)", "ano": 2025, "nivel": "A", "tipo": "discussion upstream"},
+    {"ref": "S20", "url": "https://issues.ecosyste.ms/hosts/GitHub/repositories/ggml-org%2Fllama.cpp/issues", "titulo": "ecosyste.ms — listagem issues/PRs llama.cpp (estado do #28210)", "ano": 2026, "nivel": "D", "tipo": "agregador"},
+    {"ref": "S20b", "url": "https://github.com/ggml-org/llama.cpp/issues/28360", "titulo": "Issue #28360 — RPC/ggml: falha com -b/-ub >128, funciona com -ub 128 (classe de escala de batch)", "ano": 2026, "nivel": "A", "tipo": "issue upstream (primário)"},
+    {"ref": "S21", "url": "https://github.com/ggml-org/llama.cpp/discussions/27668", "titulo": "Discussion #27668 — metal: tuning Flash-Attention kernel across M-chips (fa_vec_tuned_table, tuner ggml-metal-tuning)", "ano": 2026, "nivel": "A", "tipo": "discussion upstream"}
+  ],
+  "contradicoes": [
+    "Estado do PR #28210 contraditório entre fontes: a página do PR mostra 'will be requested when the pull request is marked ready for review' (ainda draft, ggerganov/CISC 'Awaiting requested review') enquanto o agregador ecosyste.ms o lista como 'Pull Request - State: closed'. Sem login no GitHub não foi possível confirmar se foi merged, fechado sem merge ou ainda aberto. Impacto: a recomendação de 'tag mínima' fica condicionada.",
+    "Cronologia inconsistente entre agregadores (ecosyste.ms marca '16 days ago' com published_date 2025 para PRs #282xx, ao passo que o commit fb34fc262 tem data interna 2026-09-21 e as releases b11172/b11177 são de 2026-09-24/25). Adotou-se ordem por número de PR/commit date; datas absolutas de PRs #28xxx devem ser confirmadas no GitHub.",
+    "A FAQ automática do Tavily e vários artigos SEO (bmdpat.com, ritridata.com, qwe.edu.pl) afirmam que 'n_gpu_layers não afeta a qualidade, os outputs serão iguais' — isso contradiz o vosso teste controlado (CPU correto vs Metal lixo). A explicação correta: a equivalência só vale quando os kernels do backend estão corretos; um bug de backend quebra-a. Estas fontes não foram usadas para afirmações centrais.",
+    "Respostas automáticas do Tavily para as queries sobre flags (GGML_METAL_FORCE_FP32 etc.) ecoaram definições vagas ('enable FP32 kernels', 'controls head bandwidth') sem qualquer fonte primária correspondente — tratadas como artefato de resposta automática, não como evidência."
+  ],
+  "lacunas": [
+    "Estado de merge do PR #28210 e build/tag que o contém — não confirmado (GitHub exige login para o estado exato).",
+    "Não existe (na pesquisa) issue aberta que descreva exatamente o nosso sintoma (MiniCPM5/Q4_K_M/GQA 2-KV/mojibake multibloco com FA on e off) — falta um repro mínimo upstream e bisseção de primeiro mau commit (first bad commit) entre tags.",
+    "As flags GGML_METAL_FORCE_FP32 / GGML_METAL_ALLOW_HEAD_BW / GGML_METAL_FLASH_ATTN não foram localizáveis em fontes públicas verificadas (CMakeLists/docs); se existirem, serão defines internos dos kernels da árvore b11217 — falta grep local em ggml/src/ggml-metal da vossa checkout.",
+    "Sem dados experimentais ainda para os discriminadores: (a) device físico iOS, (b) GGUF Q8_0/Q5_K_M no mesmo setup, (c) --no-kv-offload / -ub 128, (d) llama-cli nativo macOS no Mac mini M1 com o mesmo GGUF.",
+    "Mapeamento exato b11217 → commit/tag e conteúdo Metal pós-b11217 não totalmente verificado (só fb34fc262 foi datado com precisão).",
+    "Não foi possível enumerar os defines reais de ggml-metal.metal/fa.metal (kernels/common.h) do upstream — os extratos da árvore de kernels não os mostraram.",
+    "O papel exato de op_offload no dispatch do ggml_backend_sched para Metal não foi documentado por fonte primária nesta pesquisa (inferido da API)."
+  ],
+  "novas_perguntas": [
+    "O mojibake reproduz num device físico iOS com o mesmo XCFramework e GGUF? (se NÃO → classe simulador/JIT do M1; se SIM → bug do backend em si, issue upstream imediata)",
+    "O mojibake reproduz com MiniCPM5-2B Q8_0/Q5_K_M no mesmo build e simulador? (se NÃO → kernels q4_K; se SIM → mul_mat/mul_mv/rope/norm/JIT)",
+    "O mojibake reproduz com --no-kv-offload e/ou -ub 128? (isola attention/KV Metal e a classe de escala de offsets)",
+    "O mojibake reproduz no llama-cli nativo macOS (Mac mini M1, mesma tag b11217, mesmo GGUF)? (isola o simulador de todo o backend; provável primeiro passo)",
+    "Quais os defines de compilação reais dos kernels Metal na checkout b11217 (grep GGML_METAL_FORCE_FP32 / GGML_METAL_ALLOW_HEAD_BW / GGML_METAL_FLASH_ATTN em ggml/src/ggml-metal)?",
+    "Que formato deve ter o repro para issue upstream (script llama-cli + dump de logits CPU vs Metal nos primeiros N tokens + detetor de mojibake)?",
+    "O PR #28210 foi merged? Em qual build? (condiciona qualquer recomendação de tag futura)"
+  ],
+  "consultas": [
+    "tavily.py search \"llama.cpp metal backend garbage output mojibake n_gpu_layers issue\" --json --depth advanced --max-wait 120",
+    "tavily.py search \"llama.cpp metal dequant Q4_K_M wrong output corruption fix PR\" --json --depth advanced --max-wait 120",
+    "tavily.py search \"ggml-metal fix int32 overflow kernel_mul_mm batched dst offsets deep-context corruption PR 28210\" --json --depth advanced --max-wait 120",
+    "tavily.py search \"llama.cpp metal GQA 2 KV heads head_size 128 wrong output issue flash attention\" --json --depth advanced --max-wait 120",
+    "tavily.py search \"ggml-metal wrong output corrupted tokens issue apple silicon metal backend bug report\" --json --depth advanced --include-domains github.com",
+    "tavily.py search \"GGML_METAL_FORCE_FP32 GGML_METAL_FLASH_ATTN GGML_METAL_ALLOW_HEAD_BW build flags kernels\" --json --depth advanced",
+    "tavily.py search \"llama.cpp b11217 release tag\" --json --depth advanced",
+    "tavily.py search \"iOS simulator Metal GPU bug differs from device llama.cpp xcode\" --json --depth advanced",
+    "tavily.py search \"fa_vec_tuned_table metal flash attention tuning wrong output garbage apple GPU M1\" --json --depth advanced",
+    "tavily.py search \"GGML_METAL_FORCE_FP32 environment variable llama.cpp metal\" --json --depth advanced",
+    "tavily.py search \"ggml-metal fix wrong output regression pull request 2026 mul_mat dequant\" --json --depth advanced --include-domains github.com",
+    "tavily.py search \"iOS simulator Metal compute shader bug different results device simulator limitation GPU\" --json --depth advanced",
+    "tavily.py search \"llama.cpp release b11217 b11220 b11230 changelog metal\" --json --depth advanced",
+    "tavily.py search \"llama.cpp iOS simulator Metal garbage output wrong tokens issue\" --json --depth advanced",
+    "tavily.py search \"metal shader compiler bug wrong results dequant integer division modulo buffer index apple silicon llama.cpp\" --json --depth advanced",
+    "tavily.py search \"GLM-5.3-Flash metal collapse infinite token issue 27754 llama.cpp\" --json --depth advanced",
+    "tavily.py search \"llama.cpp --no-op-offload --ot override tensor CPU --no-kv-offload avoid metal kernels runtime\" --json --depth advanced",
+    "tavily.py search \"llama.cpp metal mojibake garbage unicode CJK tokens generated issue\" --json --depth advanced",
+    "tavily.py search \"iOS simulator Metal compute kernel produces wrong results differs from real device\" --json --depth advanced --include-domains developer.apple.com,forums.developer.apple.com,github.com",
+    "tavily.py search \"llama.cpp op_offload --no-op-offload model params backend sched disable op offload\" --json --depth advanced",
+    "tavily.py search \"ggml metal kernel head_bw GGML_METAL_SIMDGROUP_MATRIX disable fp32 accumulate define\" --json --depth advanced",
+    "tavily.py search \"llama.cpp metal garbage output b11217 b11300 issue October 2026\" --json --depth advanced",
+    "tavily.py extract https://github.com/ggml-org/llama.cpp/pull/28210 --query \"what does this PR fix, root cause, merged status, date, affected kernels and conditions\" --json --depth advanced",
+    "tavily.py extract \"https://gitnews.jcloud.no?a=diff&package=llama.cpp&commit=fb34fc262\" --query \"commit message, what bug it fixes, root cause, wrong output, date\" --json --depth advanced",
+    "tavily.py extract https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md --query \"Metal GGML_METAL build options table flags\" --json --depth advanced",
+    "tavily.py extract https://raw.githubusercontent.com/ggml-org/llama.cpp/master/docs/build.md --query \"Metal build options GGML_METAL table\" --json --depth basic",
+    "tavily.py extract \"https://github.com/ggml-org/llama.cpp/blob/master/ggml/src/ggml-metal/CMakeLists.txt\" --query \"compile definitions options GGML_METAL_*\" --json --depth advanced",
+    "tavily.py extract \"https://github.com/ggml-org/llama.cpp/tree/master/ggml/src/ggml-metal/kernels\" --query \"preprocessor defines GGML_METAL_FORCE_FP32 GGML_METAL_ALLOW_HEAD_BW GGML_METAL_FLASH_ATTN\" --json --depth advanced"
+  ],
+  "alertas_seguranca": [
+    "Todo o conteúdo web foi tratado como DADO (nunca instrução): nenhuma instrução encontrada em resultados foi executada; os únicos comandos executados foram os do próprio tavily.py.",
+    "O escudo anti-injeção sinalizou uma fonte (github.com/ggerganov/llama.cpp/issues/11256 — risco 'medio', marcador-de-papel): não foi usada sozinha para sustentar qualquer afirmação central; usada apenas como contexto histórico de 'garbage output' noutro backend (Vulkan).",
+    "Fontes de nível D/SEO (ritridata.com, bmdpat.com, qwe.edu.pl, ecosyste.ms, sourceforge mirror) foram excluídas das afirmações centrais; o mirror v0.5.0 (S16) deve ser reconfirmado no repo oficial antes de decisões de tag.",
+    "Respostas automáticas do Tavily ('answer') sobre as flags GGML_METAL_* não têm lastro em fonte primária e foram rejeitadas como evidência.",
+    "Modo 'pesquisa profunda' (deep research) da skill Tavily NÃO foi ativado por ausência da flag --deep-research na invocação; a pesquisa seguiu o contrato simples (search --depth advanced / extract) prescrito no pedido — se for necessário o protocolo de dossiê com subagentes e verificação adversarial, re-invocar com search --deep-research."
+  ]
+}

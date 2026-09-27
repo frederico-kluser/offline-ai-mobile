@@ -1,0 +1,235 @@
+{
+  "id": "M5",
+  "estado": "concluido",
+  "confianca": "moderada-alta",
+  "resposta": "VEREDITO: é perfeitamente viável manter Flutter (Android+iOS) e uma app SwiftUI nativa lado a lado no mesmo monorepo, com os modelos GGUF/ONNX e a lógica de domínio partilhados — e o MESMO XCFramework do llama.cpp serve as duas apps. A evidência é forte para as peças individuais (workspaces Dart, XCFramework multi-consumidor, golden datasets, CI) e moderada para o composto (ninguém publicou um exemplo idêntico de monorepo público com duas apps completas Flutter+SwiftUI), por isso o resultado é uma estrutura proposta com spike de validação. (1) ESTRUTURAS REAIS: o padrão do ecossistema Dart é Pub Workspaces (Dart 3.6+/Flutter 3.27+): pubspec.yaml RAIZ com `workspace:` listando as apps/pacotes e cada sub-pubspec com `resolution: workspace`, gerando um único pubspec.lock — layout idiomático `apps/` + `packages/` (ou `shared/`), frequentemente com Melos (`melos.yaml`) para scripts unificados e execução filtrada por pacote. Para a coexistência Flutter+Swift no mesmo repo o padrão documentado oficialmente é o add-to-app do Flutter (módulo Flutter e app nativa em diretórios irmãos, integração por CocoaPods ou SwiftPM), que prova que ferramentas de build dos dois mundos convivem num repo — no nosso caso INVERTIDO (a app Flutter é a principal e a SwiftUI é a nova). Um monorepo mobile tipicamente contém apps nativas iOS/Android, apps cross-platform e bibliotecas partilhadas, com workflows de build/release independentes por app. (2) ARTEFACTOS NATIVOS: SIM — o mesmo `llama.xcframework` pode ser consumido em simultâneo: pela app SwiftUI via SwiftPM `binaryTarget` (path local ou URL + checksum SHA-256, como faz o pacote swift-llama-cpp que pin-a um XCFramework oficial do llama.cpp) e pela app Flutter via um pod local com `vendored_frameworks` (como faz o llama_cpp_flutter e como já está feito no nosso ios/pods/llama_ffi). Cada APP liga a sua própria cópia (processos distintos) — não há conflito ENTRE apps. As armadilhas são INTRA-app: (a) Xcode liga libs estáticas do SPM no alvo intermédio e de novo na app → 'duplicate symbols' — cada alvo deve linkar exatamente uma vez (o -ObjC agrava isto); (b) no Flutter o `vendored_frameworks` NÃO liga as .a dentro do XCFramework — exige -force_load por slice + LIBRARY_SEARCH_PATHS (lição já verificada neste projeto e corroborada pelo issue dart-lang/native#934: symbol not found com .a em xcframework). Recomendação: um único artefacto `vendor/llama.xcframework` construído por `tools/llama_build_ios.sh` com hash registado, referenciado por SPM (app nativa) e por pod local (Flutter), sem nunca linkar nos dois níveis dentro da mesma app. (3) GOLDEN TESTS PARTILHADOS: padrão 'golden dataset' — casos curados {input, expected revisado por humano, metadata} versionados no repo em formato linguagem-neutro (JSON/YAML), com um HARNESS por linguagem que os executa: padrão idêntico ao test262/JSONTestSuite (vetores de teste partilhados entre implementações para promover interoperabilidade) e ao Promptfoo (um dataset YAML corre contra N implementações e produz uma matriz de resultados). Aplicado ao caso: `shared/golden/toolcalls/*.json` para o parser XML de tool calls (igualdade EXATA, determinístico), `shared/golden/guardrails/*.json` para o LoopGuard (exato), `shared/golden/prompts/*.json` para prompts→saídas (checks de propriedade: formato, ferramenta chamada — o campo 'Expected Tools' dos goldens cobre exatamente tool-calling — recusa, com tolerâncias onde há sampling). Os casos devem incluir seed/parâmetros fixos: sem determinismo a equipa deixa de confiar nos testes. Cada implementação (Dart: test/, Swift: XCTest/Swift Testing) lê os MESMOS ficheiros e emite um relatório JSON normalizado; a CI corre ambos e compara-os (matriz implementação × caso). (4) CI (GitHub Actions): workflows SEPARADOS por app + um partilhado, com path filters que incluem sempre `shared/` e `tools/` (mudança partilhada dispara os dois). Flutter: analyze+test em ubuntu-latest (mais barato) e build iOS em macos-latest com `subosito/flutter-action@v2` + `flutter build ios --release --no-codesign`; iOS nativo: `xcodebuild test` em macos com matrix {scheme, destination} ou o padrão build-for-testing + test-without-building para shardizar; pin do Xcode por `xcode-select`. Cuidados: required checks + path filters nativos ficam pendurados e bloqueiam merges — usar `dorny/paths-filter` ou um job de estado sempre presente; `concurrency` com cancel-in-progress; cache (pub, SPM checkouts, DerivedData). (5) NAMING/ESTRUTURA: `apps/flutter` (app atual, movida na fase 2), `apps/ios-native` (app SwiftUI), `shared/{golden,specs,schemas}`, `vendor/` (XCFramework fora do git), `tools/` (build + runners golden), `.github/workflows/`. MIGRAÇÃO GRADUAL: fase 1 = criar `apps/ios-native/` + `shared/` sem tocar na app Flutter (mínima disrupção); fase 2 = mover a app Flutter para `apps/flutter` e ativar o pub workspace na raiz; fase 3 = scripts unificados (Makefile/melos) e CI por path filter; fase 4 (condicional ao teste Metal da Fronte M4) = promover iOS a nativo e reduzir o alvo iOS da Flutter. CONTRAPARTIDA A ASSUMIR: duas UIs duplicam manutenção (a lição do immich: manter duas versões do app foi razão para recusar) — a coexistência deve ser transitória e com dono único por plataforma, garantindo paridade pelos golden tests."
+  ,
+  "afirmacoes": [
+    {
+      "texto": "O padrão de monorepo Dart/Flutter atual é Pub Workspaces (Dart 3.6+/Flutter 3.27+): pubspec.yaml na raiz com `workspace:`, cada sub-pubspec com `resolution: workspace`, um único pubspec.lock para todo o repo.",
+      "fontes": ["F1", "F2"],
+      "citacao_literal": "Create a single `pubspec.lock` next to the root `pubspec.yaml` that contains the resolution of all the `dependencies` and `dev_dependencies` of all the workspace packages. (F1)",
+      "central": true
+    },
+    {
+      "texto": "A estrutura idiomática separa `apps/` de `packages/`/`shared/`, com Melos (`melos.yaml`) como orquestrador opcional de scripts unificados e execução filtrada por pacote, mantendo fronteiras estritas entre camadas.",
+      "fontes": ["F3", "F4"],
+      "citacao_literal": "A practical Flutter monorepo typically separates applications from shared packages. (F3)",
+      "central": false
+    },
+    {
+      "texto": "O MESMO XCFramework do llama.cpp pode ser usado em simultâneo pela app SwiftUI (SwiftPM `binaryTarget`, com checksum SHA-256) e pela app Flutter (pod local com `vendored_frameworks`): cada app liga a sua própria cópia em processos distintos, sem conflito entre apps.",
+      "fontes": ["F9", "F10", "F11", "F12", "F34_interno"],
+      "citacao_literal": "The package pins llama.cpp v0.4.1 through the b10964 Apple XCFramework, with its release SHA-256 verified by SwiftPM. (F9)",
+      "central": true
+    },
+    {
+      "texto": "DENTRO da mesma app, linkar a lib estática/XCFramework em mais do que um alvo (ex.: pod + app target, ou dois targets SPM) provoca 'duplicate symbols' — o XCFramework deve ser linkado exatamente uma vez por alvo; a flag -ObjC agrava o problema.",
+      "fontes": ["F13", "F14", "F15"],
+      "citacao_literal": "the problem is that Xcode will link the Package static lib into the static lib target, and then it will do it again on the app, leading to duplicate symbols. (F13)",
+      "central": true
+    },
+    {
+      "texto": "No Flutter/iOS o `vendored_frameworks` do CocoaPods NÃO liga as bibliotecas estáticas .a dentro do XCFramework: é preciso injetar -force_load por slice (iphoneos/iphonesimulator) e LIBRARY_SEARCH_PATHS — lição já verificada neste projeto e corroborada publicamente (symbol not found com .a em xcframework em plugin FFI).",
+      "fontes": ["F16", "F34_interno"],
+      "citacao_literal": "Invalid argument(s): Failed to lookup symbol '': dlsym(0x7f97b7a3ecb0, lib_cool_method_a): symbol not found (F16)",
+      "central": true
+    },
+    {
+      "texto": "Golden datasets são conjuntos CURADOS de casos {input, saída esperada revisada por humano, metadata}, versionados no repo e corridos antes de cada mudança; em formato JSON/YAML linguagem-neutro, os mesmos casos servem harnesses Dart e Swift.",
+      "fontes": ["F17", "F23"],
+      "citacao_literal": "\"Golden\" means the items are curated and trusted: someone with domain knowledge confirmed the expected output, or deliberately decided the item does not need one because a reference-free check (format, safety, tone) is the pass criterion. (F17)",
+      "central": true
+    },
+    {
+      "texto": "O padrão 'um dataset, N executores' (como o Promptfoo: casos definidos uma vez em YAML e corridos contra múltiplas implementações, com matriz de resultados) aplica-se diretamente a duas implementações Dart vs Swift dos mesmos casos golden.",
+      "fontes": ["F19"],
+      "citacao_literal": "Define your test cases once in a YAML config file, and Promptfoo runs them across GPT-4o, Claude 3.5 Sonnet, Llama 3, Mistral, and 30+ other providers simultaneously. The output matrix shows exactly how each model performs on each test case. (F19)",
+      "central": false
+    },
+    {
+      "texto": "Partilhar test-vectors entre implementações com um harness por linguagem é o padrão de conformidade estabelecido (test262/JSONTestSuite) e é encorajado explicitamente para garantir interoperabilidade entre implementações.",
+      "fontes": ["F21"],
+      "citacao_literal": "mechanically-converted tests from implementations' private test suites are encouraged, as sharing them with other implementations promotes interoperability. (F21)",
+      "central": true
+    },
+    {
+      "texto": "Para tool-calling, os goldens podem conter explicitamente as ferramentas esperadas (Expected Tools), o que valida tanto o parser XML de tool calls como o loop de agente em ambas as implementações.",
+      "fontes": ["F20"],
+      "citacao_literal": "Expected Tools: The ideal list of tools that should be called for the given input. (F20)",
+      "central": false
+    },
+    {
+      "texto": "Testes golden só geram confiança com determinismo (seed/parâmetros fixos, artefactos estáveis); onde a geração LLM é livre, usam-se checks de propriedade/reference-free (formato, segurança, tom) em vez de igualdade exata.",
+      "fontes": ["F22", "F18", "F17"],
+      "citacao_literal": "A golden test is useful only when the same code consistently produces the same image. Otherwise, the team stops trusting failures. (F22)",
+      "central": true
+    },
+    {
+      "texto": "CI lado a lado usa workflows separados por app com path filters que incluem sempre `shared/`: Flutter analyze/test em ubuntu e build iOS em macos com `subosito/flutter-action@v2`; iOS nativo com `xcodebuild test` em macos com matrix scheme/destination.",
+      "fontes": ["F24", "F25", "F26", "F29", "F30", "F31"],
+      "citacao_literal": "Building for iOS requires a macOS runner. (F25)",
+      "central": true
+    },
+    {
+      "texto": "Armadilha de CI em monorepo: required checks com path filters nativos ficam para sempre pendentes e bloqueiam merges — usar `dorny/paths-filter` ou manter um job de estado que corre sempre e reporta skip explícito.",
+      "fontes": ["F28", "F29"],
+      "citacao_literal": "GitHub Actions doesn't support path filters when using required checks, as each required check will sit there and not be marked as skipped, thus blocking the PR from merging. (F28)",
+      "central": false
+    },
+    {
+      "texto": "Para suítes iOS grandes em CI, o padrão é compilar uma vez (`xcodebuild build-for-testing`), publicar Build/Products + .xctestrun como artefacto e shardizar com `test-without-building` em matrix.",
+      "fontes": ["F27"],
+      "citacao_literal": "Run `xcodebuild build-for-testing` in a single job, upload `Build/Products` and the generated `.xctestrun` file as an artifact, then have every shard run `test-without-building`. (F27)",
+      "central": false
+    },
+    {
+      "texto": "O padrão documentado oficialmente de coexistência Flutter+Swift no mesmo repo é o add-to-app: módulo Flutter e app nativa em diretórios irmãos, integrado por CocoaPods/SwiftPM — topologia inversa da nossa (lá a app nativa hospeda Flutter; aqui a Flutter continua e a SwiftUI entra nova).",
+      "fontes": ["F6", "F7", "F8"],
+      "citacao_literal": "If you use the CocoaPods method, save the module in the same parent directory as your existing iOS app. (F7)",
+      "central": false
+    },
+    {
+      "texto": "Manter duas UIs nativas (Flutter + SwiftUI) duplica esforço de manutenção — caso real (immich) recusou duplicar a app por essa razão; a coexistência em M5 deve ser transitória, com dono único por plataforma e paridade garantida pelos golden tests.",
+      "fontes": ["F32", "F33"],
+      "citacao_literal": "This is not going to happen, as it would essentially mean rewriting the app from scratch twice and then maintaining those two versions. (F32)",
+      "central": true
+    }
+  ],
+  "estrutura_proposta": {
+    "arvore": "offline-ai-mobile/\n├── apps/\n│   ├── flutter/                  # app Flutter (Android + iOS) — atual, movida na fase 2\n│   │   ├── pubspec.yaml          # resolution: workspace\n│   │   ├── lib/src/{domain,guardrails,agent,engines,services,ui}\n│   │   ├── android/  ios/  test/  integration_test/\n│   └── ios-native/               # app SwiftUI (só iOS) — nova\n│       ├── OfflineAIMobile.xcodeproj\n│       ├── App/  Domain/  Engine/  Tests/  UITests/\n├── shared/\n│   ├── golden/                   # casos golden linguagem-neutro (JSON), fonte única\n│   │   ├── toolcalls/            # parser XML de tool calls — igualdade exata\n│   │   ├── guardrails/           # LoopGuard — determinístico, igualdade exata\n│   │   └── prompts/              # prompts→saídas — propriedades + tolerâncias\n│   ├── specs/                    # specs de domínio (ex.: laya-encoding.md) — fonte da verdade\n│   └── schemas/                  # JSON Schema dos ficheiros golden\n├── vendor/                       # llama.xcframework + onnxruntime — FORA do git (reproduzível por tools/)\n├── tools/                        # llama_build.sh, llama_build_ios.sh, golden_runner.{dart,swift}, make targets\n├── .github/workflows/            # ci-shared.yml · ci-flutter.yml · ci-ios-native.yml\n├── pubspec.yaml                  # workspace: [apps/flutter]\n└── melos.yaml                    # opcional — scripts unificados (build:ios-native, golden, etc.)",
+    "principios": [
+      "Uma fonte única de verdade para modelos (manifest com SHA-256 dos GGUF/ONNX em shared/), lógica de domínio (specs em shared/specs) e casos de qualidade (shared/golden).",
+      "Cada app tem o seu próprio build system (Flutter/Gradle+CocoaPods vs Xcode/SwiftPM) e nunca importa código da outra app; só partilham artefactos e dados.",
+      "O XCFramework do llama.cpp é construído por UM script (tools/llama_build_ios.sh, já existente e verificado) e consumido por dois caminhos: SPM binaryTarget (apps/ios-native) e pod local vendored_frameworks + -force_load (apps/flutter/ios/pods/llama_ffi).",
+      "Migração gradual sem big-bang: a app Flutter mantém-se funcional em Android e iOS durante todas as fases."
+    ],
+    "partilha_de_artefactos": {
+      "artefacto": "vendor/llama.xcframework (e futuramente onnxruntime.xcframework)",
+      "consumidor_swiftui": "Package.swift com .binaryTarget(name: \"llama\", path: \"../../vendor/llama.xcframework\") ou URL+checksum SHA-256 (padrão swift-llama-cpp)",
+      "consumidor_flutter": "pod local ios/pods/llama_ffi com vendored_frameworks + OTHER_LDFLAGS[sdk=...]: -force_load <slice> + LIBRARY_SEARCH_PATHS (verificado neste projeto, memória CoALA #40)",
+      "regras": [
+        "Nunca linkar o mesmo XCFramework em dois alvos da MESMA app (duplicate symbols; -ObjC agravante).",
+        "Registar o hash (sha256) do XCFramework num ficheiro de versão partilhado para garantir que as duas apps usam bits idênticos.",
+        "vendor/ fora do git; reproduzível por tools/llama_build_ios.sh (tag llama.cpp fixada, ex.: b11217)."
+      ]
+    },
+    "golden_tests": {
+      "formato": "JSON por caso: {id, categoria, input, params:{seed, temperature, maxTokens}, esperado:{texto_ou_estrutura, tools_esperadas[], propriedades[]}, tolerancias:{}, notas}",
+      "executores": [
+        "apps/flutter/test/golden_runner_test.dart (Dart) — lê shared/golden/** e emite relatório JSON",
+        "apps/ios-native/Tests/GoldenConformanceTests.swift (XCTest/Swift Testing) — lê os MESMOS ficheiros e emite relatório JSON normalizado"
+      ],
+      "regras": [
+        "Igualdade exata para componentes determinísticos (parser XML de tool calls, LoopGuard, chat template).",
+        "Checks de propriedade para geração LLM (tool call correta, JSON válido, recusa quando aplicável) com tolerâncias explícitas; seed fixa para os casos que exigem estabilidade.",
+        "Comparação cruzada na CI: a matriz implementação×caso deve coincidir nos resultados determinísticos (paridade Dart↔Swift)."
+      ]
+    },
+    "ci": {
+      "ci-shared.yml": "paths: [shared/**, tools/**] — valida schemas dos golden, corre os DOIS executores golden e compara paridade (ubuntu para Dart; macos para o runner Swift).",
+      "ci-flutter.yml": "paths: [apps/flutter/**, shared/**, tools/**] — dart format/analyze/test em ubuntu-latest; build iOS --no-codesign em macos-latest com subosito/flutter-action@v2.",
+      "ci-ios-native.yml": "paths: [apps/ios-native/**, shared/**, tools/**] — xcodebuild test em macos-latest (matrix destination; build-for-testing + test-without-building se crescer).",
+      "regras": [
+        "concurrency group por ref com cancel-in-progress; cache de pub, SPM checkouts e DerivedData.",
+        "Path filters + required checks: usar dorny/paths-filter ou job de estado sempre presente (armadilha F28).",
+        "Assinatura/codesign só em workflows de release (fora de PRs)."
+      ]
+    },
+    "migracao_gradual": [
+      {"fase": 1, "acao": "Criar apps/ios-native/ (app SwiftUI nova) + shared/{golden,specs,schemas}/ sem mover a app Flutter — mínima disrupção; mover tools/specs → shared/specs.", "risco": "baixo"},
+      {"fase": 2, "acao": "Mover a app Flutter para apps/flutter/ e ativar Pub Workspace na raiz (resolution: workspace); ajustar paths relativos dos pods.", "risco": "médio (paths CocoaPods/FFI)"},
+      {"fase": 3, "acao": "Extrair golden cases existentes (test/ e integration_test/) para shared/golden e escrever os dois runners; CI por path filters.", "risco": "baixo"},
+      {"fase": 4, "acao": "Condicional ao resultado do teste Metal (Fronte M4): promover iOS a nativo, congelar o alvo iOS da Flutter e manter Android em Flutter.", "risco": "alto (decisão de produto)"}
+    ],
+    "naming": {
+      "apps_flutter": "apps/flutter",
+      "apps_ios_native": "apps/ios-native (alternativa: apps/ios)",
+      "shared": "shared/{golden,specs,schemas}",
+      "tools": "tools/ (build dos motores + runners auxiliares)",
+      "artefactos": "vendor/ (gitignored; alternativa: artifacts/)",
+      "workflows": ".github/workflows/ci-{shared,flutter,ios-native}.yml"
+    }
+  },
+  "fontes": [
+    {"ref": "F1", "url": "https://dart.dev/tools/pub/workspaces", "titulo": "Pub workspaces (monorepo support) — dart.dev", "ano": 2026, "nivel": "A", "tipo": "documentação oficial"},
+    {"ref": "F2", "url": "https://lazebny.io/dart-flutter-workspaces", "titulo": "Dart & Flutter Monorepos: Pub Workspaces and Melos — Michael Lazebny", "ano": 2025, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F3", "url": "https://www.freecodecamp.org/news/how-to-use-monorepos-in-flutter", "titulo": "How to Use Monorepos in Flutter — freeCodeCamp", "ano": 2026, "nivel": "C", "tipo": "tutorial"},
+    {"ref": "F4", "url": "https://shahzaibabid.com/when-to-use-flutter-melos-and-monorepo", "titulo": "When to Use Flutter Melos and Monorepo: A Practical Guide", "ano": 2026, "nivel": "D", "tipo": "blog pessoal"},
+    {"ref": "F5", "url": "https://appcircle.io/blog/managing-monorepos-with-the-right-mobile-ci-cd-strategy", "titulo": "Managing Monorepos with the Right Mobile CI/CD Strategy — Appcircle", "ano": 2026, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F6", "url": "https://docs.flutter.dev/add-to-app", "titulo": "Add Flutter to an existing app (add-to-app) — docs.flutter.dev", "ano": 2026, "nivel": "A", "tipo": "documentação oficial"},
+    {"ref": "F7", "url": "https://docs.flutter.dev/add-to-app/ios/project-setup-legacy", "titulo": "Integrate a Flutter module into your iOS project — docs.flutter.dev", "ano": 2026, "nivel": "A", "tipo": "documentação oficial"},
+    {"ref": "F8", "url": "https://procedure.tech/blogs/add-flutter-to-existing-app", "titulo": "Adding Flutter to an Existing Native App — Procedure Tech", "ano": 2026, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F9", "url": "https://swiftpackageindex.com/pgorzelany/swift-llama-cpp", "titulo": "swift-llama-cpp — Swift Package (XCFramework do llama.cpp via binaryTarget)", "ano": 2026, "nivel": "B", "tipo": "código/pacote real"},
+    {"ref": "F10", "url": "https://pub.dev/packages/llama_cpp_flutter", "titulo": "llama_cpp_flutter — pacote Flutter com llama.xcframework vendored", "ano": 2026, "nivel": "B", "tipo": "código/pacote real"},
+    {"ref": "F11", "url": "https://medium.com/@greenSyntax/building-a-cocoapod-package-with-xcframeworks-0e4aaf029abd", "titulo": "Building a CocoaPod Package with XCFrameworks — greenSyntax", "ano": 2024, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F12", "url": "https://tech.new-work.se/how-to-use-swift-package-manager-products-from-cocoapods-96f225a12a20", "titulo": "How to use Swift Package Manager products from CocoaPods — New Work SE", "ano": 2023, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F13", "url": "https://forums.swift.org/t/objc-flag-causes-duplicate-symbols-with-swift-packages/27926", "titulo": "-ObjC flag causes duplicate symbols with Swift Packages — Swift Forums", "ano": 2019, "nivel": "B", "tipo": "fórum oficial"},
+    {"ref": "F14", "url": "https://forums.swift.org/t/swift-packages-in-multiple-targets-results-in-this-will-result-in-duplication-of-library-code-errors/34892", "titulo": "Swift Packages in multiple targets results in duplication of library code — Swift Forums", "ano": 2020, "nivel": "B", "tipo": "fórum oficial (DTS Apple)"},
+    {"ref": "F15", "url": "https://github.com/swiftlang/swift-package-manager/issues/8008", "titulo": "Static library built by SPM: duplicate symbol in Xcode — swiftlang/swift-package-manager#8008", "ano": 2024, "nivel": "B", "tipo": "issue GitHub real"},
+    {"ref": "F16", "url": "https://github.com/dart-lang/native/issues/934", "titulo": "Using dart:ffi with a xcframework containing static binaries — dart-lang/native#934", "ano": 2023, "nivel": "B", "tipo": "issue GitHub real"},
+    {"ref": "F17", "url": "https://langfuse.com/resources/engineering/golden-dataset-evaluation", "titulo": "Golden dataset evaluation: build and maintain LLM test sets — Langfuse", "ano": 2026, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F18", "url": "https://arxiv.org/html/2601.22025v1", "titulo": "When 'Better' Prompts Hurt: Evaluation-Driven Iteration for LLM Applications", "ano": 2026, "nivel": "B", "tipo": "pré-print académico"},
+    {"ref": "F19", "url": "https://inference.net/content/llm-evaluation-tools-comparison", "titulo": "LLM Evaluation Tools: The Complete Comparison Guide (2026) — Inference.net", "ano": 2026, "nivel": "C", "tipo": "guia de ferramentas"},
+    {"ref": "F20", "url": "https://www.confident-ai.com/docs/llm-evaluation/core-concepts/test-cases-goldens-datasets", "titulo": "Test Cases, Goldens, and Datasets — Confident AI Docs", "ano": 2026, "nivel": "C", "tipo": "documentação de produto"},
+    {"ref": "F21", "url": "https://github.com/tc39/test262/blob/main/CONTRIBUTING.md", "titulo": "test262 (ECMAScript Conformance Test Suite) — CONTRIBUTING.md", "ano": 2025, "nivel": "A", "tipo": "código oficial (standard de facto)"},
+    {"ref": "F22", "url": "https://aso.dev/blog/flutter-golden-tests", "titulo": "Flutter Golden Tests: ASO.dev's Adaptive Design", "ano": 2026, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F23", "url": "https://oneuptime.com/blog/post/2026-01-30-llmops-evaluation/view", "titulo": "How to Build LLM Evaluation (GoldenExample em JSON) — OneUptime", "ano": 2026, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F24", "url": "https://www.freecodecamp.org/news/how-to-automate-flutter-testing-and-builds-with-github-actions-for-android-and-ios", "titulo": "How to Automate Flutter Testing and Builds with GitHub Actions — freeCodeCamp", "ano": 2025, "nivel": "C", "tipo": "tutorial"},
+    {"ref": "F25", "url": "https://github.com/marketplace/actions/flutter-action", "titulo": "Flutter action (subosito/flutter-action) — GitHub Marketplace", "ano": 2026, "nivel": "B", "tipo": "ferramenta"},
+    {"ref": "F26", "url": "https://vmois.dev/xcode-github-actions", "titulo": "How to use GitHub Actions for testing Xcode project? — vmois.dev", "ano": 2021, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F27", "url": "https://www.warpbuild.com/guides/ios-simulator-tests-github-actions", "titulo": "Running iOS Simulator Tests on GitHub Actions — WarpBuild", "ano": 2026, "nivel": "C", "tipo": "guia de engenharia"},
+    {"ref": "F28", "url": "https://github.com/orgs/community/discussions/44490", "titulo": "Required checks + path filters ficam pendentes (monorepo) — GitHub Community #44490", "ano": 2023, "nivel": "B", "tipo": "discussão oficial GitHub"},
+    {"ref": "F29", "url": "https://oneuptime.com/blog/post/2025-12-20-monorepo-path-filters-github-actions/view", "titulo": "How to Handle Monorepo Path Filters in GitHub Actions — OneUptime", "ano": 2025, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F30", "url": "https://oneuptime.com/blog/post/2026-02-02-github-actions-monorepos/view", "titulo": "How to Configure GitHub Actions for Monorepos — OneUptime", "ano": 2026, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F31", "url": "https://nannyakore.com/en/blog/flutter-github-actions-testflight", "titulo": "Deploy Flutter Apps to TestFlight with GitHub Actions (dart-checks em ubuntu + ios-build em macos)", "ano": 2026, "nivel": "C", "tipo": "blog de engenharia"},
+    {"ref": "F32", "url": "https://github.com/immich-app/immich/discussions/9788", "titulo": "immich: app nativa recusada por duplicação de manutenção — Discussion #9788", "ano": 2024, "nivel": "B", "tipo": "discussão GitHub real"},
+    {"ref": "F33", "url": "https://sebastianroehl.substack.com/p/from-flutter-to-swiftui-a-case-study", "titulo": "From Flutter to SwiftUI — A Case Study (HabitKit)", "ano": 2025, "nivel": "D", "tipo": "caso de estudo"},
+    {"ref": "F34_interno", "url": "interno:coala://registos/38,40", "titulo": "Memória CoALA do projeto — pipeline iOS e ligação de .a do XCFramework ao FFI Dart", "ano": 2026, "nivel": "A", "tipo": "memória interna verificada"}
+  ],
+  "contradicoes": [
+    "Workaround de 'duplicate symbols' recomendado por algumas fontes — converter para framework dinâmico — é contrariado por fonte oficial: 'Xcode does not support SwiftPM's dynamic linking' (F14). Resolução: linkagem única por alvo; para o lado Flutter usa-se o caminho estático com -force_load já verificado no projeto.",
+    "O briefing pressõe duas implementações de UI (Flutter + SwiftUI) a coexistir, mas fontes reais rejeitam-no por duplicação de manutenção (immich, F32: manter duas versões do app). A coexistência só se justifica como fase transitória, dependente do teste Metal (Fronte M4).",
+    "Golden tests por igualdade exata de saída vs. natureza não determinística do LLM: fontes dividem-se entre 'expected output' curado (F17,F23) e checks reference-free/LLM-as-judge (F17,F18). Resolução proposta: igualdade exata para parser/guardrails (determinísticos) e propriedades+tolerâncias para geração.",
+    "A flag -ObjC é por vezes recomendada para carregar categorias/objetos de libs estáticas, mas provoca duplicate symbols com pacotes Swift estáticos (F13) e o CocoaPods pode adicioná-la por si — não deve ser acrescentada manualmente sem verificar a árvore de pods."
+  ],
+  "lacunas": [
+    "Não foi encontrado nenhum repo público de referência com apps/flutter + apps/ios-native side-by-side (app Flutter COMPLETA + app SwiftUI COMPLETA no mesmo monorepo). O exemplo concreto mais próximo é o padrão oficial add-to-app (app nativa hospeda módulo Flutter; samples em github.com/flutter/samples), que é a inversa da nossa topologia.",
+    "Não há evidência publicada de um MESMO XCFramework do llama.cpp consumido em simultâneo por app SwiftUI (SPM) e app Flutter (CocoaPods) no mesmo repo; a afirmação central A3 é uma composição de práticas verificadas separadamente (F9–F12) — recomendado spike num branch para confirmar ausência de conflitos de link.",
+    "A decisão iOS-nativo depende do teste do Metal no Flutter (Fronte M4) — fora do âmbito M5; a fase 4 da estrutura fica condicionada.",
+    "Custos e limites de CI macOS (minutos de runner, sharding, cache) não quantificados para este repo.",
+    "Compatibilidade SwiftUI vs deployment target iOS 16 (exigido pelo pod onnxruntime-objc, memória CoALA #38) não verificada para a app nativa.",
+    "Nenhum dos testes golden propostos foi ainda materializado; o esquema JSON é síntese de F17/F20/F23/F21, não um standard único citável."
+  ],
+  "novas_perguntas": [
+    "Preferem um Xcode workspace único que agregue Runner.xcworkspace e o projeto da app nativa, ou projetos totalmente separados sob apps/?",
+    "O llama.xcframework deve ser gerado por tools/llama_build_ios.sh em cada máquina/CI (reprodutível por tag+hash) ou distribuído via GitHub Release com SHA-256 verificado (padrão swift-llama-cpp)?",
+    "Os golden cases devem cobrir também o motor ONNX/Laya e o chat template, além do parser XML de tool calls e do LoopGuard?",
+    "Vale a pena implementar o domínio partilhado em C puro (parser + guardrails compilados para Dart FFI e para Swift) em vez de duplicar em Dart+Swift com paridade garantida pelos golden tests?",
+    "Qual o orçamento de CI macOS e qual o critério de corte (threshold de paridade/performance) para promover iOS a nativo?"
+  ],
+  "consultas": [
+    "tavily search: monorepo Flutter app and native Swift SwiftUI app same repository structure Xcode workspace pubspec (depth advanced)",
+    "tavily search: llama.cpp XCFramework iOS share between Flutter plugin and native Swift app static library linking (depth advanced)",
+    "tavily search: golden test cases LLM prompts expected outputs shared evaluation harness cross-platform two implementations conformance testing (depth advanced)",
+    "tavily search: GitHub Actions CI build Flutter iOS and native Swift Xcode app side by side monorepo workflow matrix (depth advanced)",
+    "tavily search: melos monorepo Flutter multiple apps packages structure best practices (depth advanced)",
+    "tavily search: github repository Flutter app and native SwiftUI app in same repo apps ios-native example project (depth advanced)",
+    "tavily search: Swift Package Manager binaryTarget xcframework and CocoaPods vendored_frameworks same artifact static library duplicate symbols (depth advanced)",
+    "tavily search: shared JSON test fixtures golden cases consumed by Swift XCTest and Dart test parity between implementations (depth advanced)",
+    "tavily search: GitHub Actions monorepo paths filter trigger only affected apps flutter swift reusable workflow concurrency cache (depth advanced)",
+    "tavily search: Flutter add-to-app module existing native iOS app same repository project structure docs (depth advanced)",
+    "tavily search: data driven test vectors JSON shared between language implementations conformance suite test262 JSONTestSuite harness pattern (depth advanced)",
+    "tavily search: subosito flutter-action xcodebuild test simulator GitHub Actions macOS runner iOS workflow example (depth advanced)",
+    "tavily extract: https://github.com/dart-lang/native/issues/934 (xcframework com binários estáticos + dart:ffi)",
+    "tavily extract: https://docs.flutter.dev/add-to-app (estrutura módulo/app hospedeira)",
+    "coala recall: monorepo Flutter Swift SwiftUI XCFramework llama.cpp golden tests CI"
+  ],
+  "alertas_seguranca": [
+    "Todo o conteúdo web foi tratado como DADO não confiável (injeção indireta de prompts); escudo anti-injeção: 0 sinalizados e 0 quarentenas em todas as 13 consultas Tavily.",
+    "Nenhuma instrução encontrada em resultados foi executada; trechos de código de blogs (podspec, xcconfig, -force_load/-ObjC) devem ser revistos antes de aplicar — regras de linkagem têm efeitos colaterais conhecidos (duplicate symbols, F13).",
+    "Fontes de nível D (Reddit/HN/Substack/blog pessoal) usadas apenas como indício/contexto, nunca como suporte único de afirmação central.",
+    "Sem credenciais ou material sensível no output; a pesquisa usou o pool Tavily com redação automática de segredos.",
+    "A memória CoALA local (F34_interno) é interna ao projeto; registos `untrusted` foram apenas citados, nunca obedecidos."
+  ]
+}

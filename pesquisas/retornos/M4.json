@@ -1,0 +1,215 @@
+{
+  "id": "M4",
+  "estado": "concluido",
+  "confianca": "moderada-alta",
+  "resposta": "VEREDITO PRÉVIO (importante): a app Flutter JÁ corre em iOS — build de device e simulador verificados no macmini com o mesmo XCFramework do llama.cpp b11217 (memória do projeto, registos #38/#39). O port NATIVO SwiftUI não é tecnicamente necessário para existir em iOS; é uma decisão de produto (UX nativa, tamanho de binário, acesso a FoundationModels, sem runtime Flutter). A arquitetura abaixo responde à pergunta condicional: SE for decidido iOS nativo, eis a stack com o mesmo alcance. (1) STACK: SwiftUI + llama.cpp ligado pelo MESMO XCFramework estático já construído (tools/llama_build_ios.sh → llama.xcframework; o exemplo oficial usa ./build-xcframework.sh e arrasta build-apple/llama.xcframework para o projeto [F1]). De exemplos prontos reutiliza-se: LibLlama.swift do exemplo oficial llama.swiftui (ponto de partida declarado no README [F1]; atenção: faz sampling greedy à mão porque parte das funções de sampling não estava na API pública [F20]) ou, para menos código próprio, um pacote Swift pronto — LocalLLMClient (llama.cpp+MLX+FoundationModels, streaming, tool calling experimental, FileDownloader com progresso [F4]), swift-llama (parse de tool calls incluído [F17]), swift-llama-cpp [F18] ou SpeziLLMLocal do ecossistema Stanford Spezi [F19]. Dado que o projeto já tem FFI própria pinada em b11217 (com parser minicpm5 e DRY), a opção de menor risco é manter o XCFramework atual e escrever um binding Swift fino (o LibLlama.swift como esqueleto) em vez de adotar um pacote que traz o seu próprio binário. (2) ONNX RUNTIME em Swift: a API suportada é a Objective-C (onnxruntime-objc), consumível por CocoaPods OU por SPM oficial (microsoft/onnxruntime-swift-package-manager, platforms iOS v15/macOS v14, binário como binary target) [F5][F7]. Padrão de uso com tensores int64 (input_ids/attention_mask): ORTEnv → ORTSessionOptions → ORTSession(env:modelPath:sessionOptions:) → ORTValue(tensorData:elementorType:.int64, shape:) com NSMutableData de [Int64] → session.run(withInputs:) [F6][F8][F30] — exatamente o contrato que o Laya precisa (encoder classificador). Performance: por omissão CPU/XNNPACK; CoreML EP só deve ser ativado se medido — benchmarks mostram ganhos grandes em CNNs pequenas mas eficácia reduzida em transformers, e partições por operadores não suportados podem DEGRADAR o desempenho [F22][F23]; o modelo 428MB q4 é sensível a isto (quantização q4 pode nem ser aceite pelo CoreML EP — medir CPU EP primeiro). Reutiliza-se o MESMO model_q4.onnx e o mesmo tokenizer.json. (3) TOKENIZER BPE ByteLevel: a implementação atual (lib/src/laya/wordpiece_tokenizer.dart, ~493 linhas) é BPE ByteLevel GPT-2 com normalizador NFC, added tokens por longest-match e regex GPT-2, com spec exata e desvios documentados em tools/specs/laya-encoding.md §5. Alternativas Swift: (a) PORTAR a implementação Dart (recomendada — a lógica é determinística e os golden vectors partilháveis garantem paridade bit-a-bit; Swift tem NFC embutido via precomposedStringWithCanonicalMapping); (b) swift-transformers da Hugging Face — suporta BPE e carrega de pasta LOCAL sem Hub (AutoTokenizer.from(modelFolder:) [F9][F10][F11]) mas pode divergir nos mesmos pontos em que o HF tokenizers divergiu (os desvios estão documentados na spec); (c) onnxruntime-extensions com operadores de tokenizer no grafo (CocoaPods iOS) [F21] — evita código mas muda o formato do modelo; (d) fork swift-tokenizers (só tokenizer) [F29]. Para paridade funcional, (a) com os mesmos vetores de teste é o caminho mais seguro. (4) TOOL CALLING LOOP + GUARDRAILS: o chat.h do llama.cpp (common_chat_tool_call, common_chat_templates, caps Jinja) é C++ da lib common — reutilizável só via wrapper C++/ObjC, e o tool-calling tipicamente combina-se com gramática GBNF/llguidance na descodificação [F12][F13]; nada disso traz parser XML estilo MiniCPM5 pronto. A Apple FoundationModels tem tool calling e guided generation nativos [F14][F15], mas exige iOS 26+/Apple Intelligence e usa o modelo de 3B da Apple — não replica o MiniCPM5-2B nem o formato XML, logo é um motor ALTERNATIVO, não uma reutilização. Recomendação: PORTAR a máquina de estados Dart (minicpm5_chat.dart + tool_loop.dart + loop_guard.dart: max steps, max tool calls consecutivas, ciclo por chave canónica, repetição n-grama, orçamento de tokens, timeout, resposta final forçada) para Swift — é 100% determinística, sem dependências, e Swift enums com associated values + async/await mapeiam 1:1 os sealed classes Dart. Os MESMOS casos de teste passam a correr em Dart e Swift (golden vectors JSON partilhados). (5) MONOREPO Flutter+SwiftUI com os MESMOS modelos/guardrails: padrão real — um repo, apps/FlutterApp (o atual) + apps/iOSNative (SwiftUI) + shared/ (modelos, catálogo JSON, tools/specs/laya-encoding.md, golden vectors de tokenizer/parser/guardrails, ferramentas de build llama.cpp). Casos reais: Flutter add-to-app (docs oficiais Flutter) onde o módulo Flutter e o host nativo partilham assets no MESMO bundle iOS (partilha nativa↔Flutter documentada para iOS; duplicada em Android) [F24][F25]; Skip partilha uma camada de modelos Swift entre SwiftUI e Jetpack Compose [F26]; monorepos Flutter com apps/+packages/ e Melos para o lado Dart [F27]. A parte portável do projeto (specs + testes) já está isolada em tools/specs/ — é ela que se põe em shared/. (6) ESFORÇO (1 dev sénior, paridade funcional dos 4 ecrãs + motores): setup Xcode + XCFramework 2–3d; engine LLM Swift (binding, streaming, samplers, métricas) 5–7d; chat template + parser XML + tool loop 5–7d; LoopGuard 2–3d; engine Laya ONNX (int64) 2–3d; tokenizer BPE port + golden vectors 4–6d; domain Codable + catálogo + downloads verificados (URLSession + CryptoKit SHA-256) 4–6d; UI SwiftUI dos 4 ecrãs 12–16d; QA/paridade/perf em device 4–6d. TOTAL 40–57 dias úteis (~8–11 semanas a 1 dev; ~5–7 semanas com 2 devs em paralelo UI∥motores). Com pacote pronto tipo LocalLLMClient poupam-se 3–5 dias no engine LLM, a troco de dependência externa. O caso público de reescrita Flutter→SwiftUI (FocusKit) confirma que o esforço se mede em meses e o ganho é em integração nativa [F28].",
+  "afirmacoes": [
+    {
+      "texto": "A app Flutter já compila e corre em iOS (device + simulador) com o XCFramework estático do llama.cpp b11217; o port nativo SwiftUI não é pré-requisito para presença em iOS, é decisão de produto.",
+      "fontes": ["F1", "F23_interno"],
+      "citacao_literal": "VERIFICADO: flutter build ios (device 47.6MB) + simulador (iPhone 18 Pro, iOS 27) + app a correr + modelos detetados no container (fonte: memória CoALA do projeto, registo #38, sessão 2026-09-27 no macmini)",
+      "central": true
+    },
+    {
+      "texto": "A stack nativa recomendada é SwiftUI + o MESMO llama.xcframework já construído, com binding Swift fino baseado no LibLlama.swift do exemplo oficial llama.swiftui; pacotes prontos (LocalLLMClient, swift-llama, swift-llama-cpp, SpeziLLMLocal) são alternativas válidas mas trazem binários próprios.",
+      "fontes": ["F1", "F2", "F4", "F17", "F18", "F19"],
+      "citacao_literal": "This is a sample app that can be used as a starting point for more advanced projects. [README do llama.swiftui]",
+      "central": true
+    },
+    {
+      "texto": "ONNX Runtime em Swift usa a API Objective-C (onnxruntime-objc) via CocoaPods ou SPM oficial (iOS v15+), com ORTValue(tensordata:elementType:.int64, shape:) para input_ids/attention_mask — padrão documentado em exemplos de transformers iOS.",
+      "fontes": ["F5", "F6", "F7", "F8", "F30"],
+      "citacao_literal": "let inputTensor = try ORTValue(tensorData: inputData, elementType: .int64, shape: [1, inputIDs.count] as [NSNumber]) ... let outputs = try session.run(withInputs: [\"input_ids\": inputTensor, \"attention_mask\": attentionTensor], ... [Hackernoon, exemplo ORT+transformer em Swift]",
+      "central": true
+    },
+    {
+      "texto": "O tokenizer Laya é BPE ByteLevel GPT-2 com normalizador NFC e added tokens por longest-match (apesar do nome wordpiece_tokenizer.dart), com spec completa em tools/specs/laya-encoding.md §5; a rota mais segura para paridade é portá-lo Dart→Swift reutilizando os mesmos golden vectors, com swift-transformers (BPE, carga local via AutoTokenizer.from(modelFolder:)) como alternativa.",
+      "fontes": ["F9", "F10", "F11", "F21", "F29", "F23_interno"],
+      "citacao_literal": "O artefacto (tools/laya_artifact/tokenizer.json) declara model.type = \"BPE\" com pre-tokenizer/decoder ByteLevel (GPT-2) e normalizador NFC — logo a implementação existente é BPE ByteLevel, não WordPiece (o nome do ficheiro mantém-se por contrato). [lib/src/laya/wordpiece_tokenizer.dart, cabeçalho do ficheiro]",
+      "central": true
+    },
+    {
+      "texto": "swift-transformers suporta BPE e carrega tokenizers de pastas locais sem rede (AutoTokenizer.from(modelFolder:)), mas pode divergir do comportamento exato do tokenizer.json do Laya; a comparação com golden vectors decide entre port próprio e pacote.",
+      "fontes": ["F9", "F10", "F11"],
+      "citacao_literal": "let tokenizer = try await AutoTokenizer.from(modelFolder: tokenizerFolder) [Swift Package Index, swift-transformers, exemplo CoreML]",
+      "central": true
+    },
+    {
+      "texto": "O chat.h do llama.cpp (estruturas de tool calls + templates Jinja + gramáticas) é C++ da lib common e não é consumível diretamente em Swift sem wrapper; não existe parser XML estilo MiniCPM5 pronto em Swift — a máquina de estados Dart (loop + guardrails determinísticos) deve ser portada e validada com os mesmos testes.",
+      "fontes": ["F12", "F13"],
+      "citacao_literal": "struct common_chat_tool_call { std::string name; std::string arguments; std::string id; ... [llama.cpp/common/chat.h]",
+      "central": true
+    },
+    {
+      "texto": "Apple FoundationModels oferece tool calling e guided generation on-device (modelo 3B, iOS 26+, melhorias de tool calling em iOS 26.4), mas é um motor alternativo: não executa o MiniCPM5-2B nem o formato XML do projeto.",
+      "fontes": ["F14", "F15", "F16"],
+      "citacao_literal": "The framework provides guided generation, which ensures that the models respond with a consistent format that developers define. [Apple Newsroom, 2025-09]",
+      "central": true
+    },
+    {
+      "texto": "O padrão de monorepo Flutter+SwiftUI com ativos partilhados tem casos reais: Flutter add-to-app (módulo Flutter num host Swift; partilha de assets nativos↔Flutter suportada em iOS) e Skip (camada de modelos Swift partilhada entre SwiftUI e Compose); a estrutura recomendada é apps/FlutterApp + apps/iOSNative + shared/ com specs, golden vectors e catálogo de modelos.",
+      "fontes": ["F24", "F25", "F26", "F27"],
+      "citacao_literal": "Asset sharing between native and Flutter works on iOS, where the Flutter module can reference assets from the host iOS bundle directly. [Procedure Blog, brownfield guide]",
+      "central": true
+    },
+    {
+      "texto": "O esforço estimado para paridade funcional em SwiftUI é de 40–57 dias úteis para 1 dev sénior (8–11 semanas; 5–7 semanas com 2 devs em paralelo UI∥motores), sendo o grosso a UI (12–16d), o engine LLM + loop de tools (10–14d) e o tokenizer (4–6d).",
+      "fontes": ["F28", "F23_interno"],
+      "citacao_literal": "For me personally, the switch was worth it. FocusKit is built entirely in SwiftUI and the development experience has been great, despite the terrible tooling. [Sebastian Röhl, From Flutter to SwiftUI - A Case Study]",
+      "central": true
+    },
+    {
+      "texto": "O desempenho do encoder ONNX Laya em iOS deve ser medido com CPU/XNNPACK primeiro: CoreML EP ganha em CNNs pequenas mas é menos eficaz em transformers e pode degradar quando o grafo é particionado.",
+      "fontes": ["F22", "F23"],
+      "citacao_literal": "If CPU/XNNPACK do not meet the application’s performance results, then try NNAPI/CoreML. Performance with these execution providers is device and model specific. [onnxruntime.ai/docs/tutorials/mobile]",
+      "central": false
+    }
+  ],
+  "componentes": [
+    {
+      "peca": "llama.cpp XCFramework estático (llama.xcframework, tag b11217, Metal embutido)",
+      "estado": "construído e verificado no macmini (tools/llama_build_ios.sh; equivalente ao build-xcframework.sh oficial)",
+      "reutilizavel": "total — mesmo artefacto serve Flutter iOS e app SwiftUI nativa",
+      "fontes": ["F1"]
+    },
+    {
+      "peca": "Binding Swift do llama.cpp (inference, sampling, streaming, métricas)",
+      "estado": "a escrever; esqueleto LibLlama.swift do exemplo oficial; alternativas LocalLLMClient / swift-llama / swift-llama-cpp / SpeziLLMLocal",
+      "reutilizavel": "parcial-alto (código de terceiros; o XCFramework é o mesmo)",
+      "fontes": ["F1", "F4", "F17", "F18", "F19", "F20"]
+    },
+    {
+      "peca": "ONNX Runtime (onnxruntime-objc via CocoaPods ou microsoft/onnxruntime-swift-package-manager)",
+      "estado": "pronto — mesmo pod/versão usado no Flutter iOS; API ORTEnv/ORTSession/ORTValue",
+      "reutilizavel": "total (biblioteca e model_q4.onnx idênticos)",
+      "fontes": ["F5", "F6", "F7", "F30"]
+    },
+    {
+      "peca": "Tokenizer BPE ByteLevel do Laya (encode/decode, added tokens, NFC)",
+      "estado": "implementado em Dart (493 linhas) com spec em tools/specs/laya-encoding.md; port Swift a fazer",
+      "reutilizavel": "lógica total (spec + golden vectors); código 0% (reimplementar ~500–700 linhas Swift) — alternativa swift-transformers/onnxruntime-extensions",
+      "fontes": ["F9", "F10", "F11", "F21", "F29"]
+    },
+    {
+      "peca": "Chat template Jinja do MiniCPM5 + parser XML de tool calls (CDATA, param/function tags)",
+      "estado": "implementado em Dart (minicpm5_chat.dart, ~portável como afirma o briefing); port Swift a fazer",
+      "reutilizavel": "lógica total + testes; código 0%",
+      "fontes": ["F12", "F23_interno"]
+    },
+    {
+      "peca": "Tool loop determinístico + LoopGuard (max steps, max tool calls, ciclos por chave canónica, repetição n-grama, token budget, timeout, resposta final forçada)",
+      "estado": "implementado em Dart (tool_loop.dart + loop_guard.dart, 277+ linhas); port Swift 1:1 (enums com associated values + async/await)",
+      "reutilizavel": "lógica total + golden vectors; código 0%",
+      "fontes": ["F12", "F13", "F23_interno"]
+    },
+    {
+      "peca": "UI — ecrã Prompts (editor system/user, chips LLM|Laya, Executar, Resultado/métricas, histórico)",
+      "estado": "novo em SwiftUI (prompts_tab.dart 461 linhas + history_page.dart 184)",
+      "reutilizavel": "0% código; 100% fluxos/design",
+      "fontes": ["F28"]
+    },
+    {
+      "peca": "UI — ecrãs Laya (decisões tipadas), Tools (timeline + guardrails) e Modelos (downloads com progresso/verificação)",
+      "estado": "novos em SwiftUI (~1600 linhas Dart equivalentes)",
+      "reutilizavel": "0% código; 100% fluxos/design",
+      "fontes": ["F28"]
+    },
+    {
+      "peca": "Download + verificação de modelos (sha256, .part → instalação atómica)",
+      "estado": "implementado em Dart (services, 491 linhas); port Swift com URLSession (progress via delegate) + CryptoKit SHA-256",
+      "reutilizavel": "lógica total (catálogo JSON e regras); código 0%",
+      "fontes": ["F4", "F24"]
+    },
+    {
+      "peca": "Domain (decisões tipadas Laya, config determinística, registos, ToolSpec)",
+      "estado": "implementado em Dart (1039 linhas); port Swift com Codable",
+      "reutilizavel": "lógica total (esquemas JSON partilháveis em shared/); código 0%",
+      "fontes": ["F26"]
+    },
+    {
+      "peca": "Camada partilhada do monorepo (shared/: modelos, tools/specs/laya-encoding.md, golden vectors, catálogo, scripts de build llama.cpp)",
+      "estado": "parcialmente existe (tools/specs/); a formalizar em apps/FlutterApp + apps/iOSNative + shared/",
+      "reutilizavel": "total — é o mecanismo de paridade Flutter↔SwiftUI",
+      "fontes": ["F24", "F25", "F26", "F27"]
+    }
+  ],
+  "fontes": [
+    {"ref": "F1", "url": "https://github.com/ggml-org/llama.cpp/blob/master/examples/llama.swiftui/README.md", "titulo": "llama.cpp/examples/llama.swiftui — README (sample app + build-xcframework.sh)", "ano": 2025, "nivel": "A", "tipo": "código oficial"},
+    {"ref": "F2", "url": "https://github.com/ggml-org/llama.cpp/discussions/4508", "titulo": "llama.swiftui: usage instructions and performance stats", "ano": 2024, "nivel": "B", "tipo": "discussão oficial"},
+    {"ref": "F3", "url": "https://levelup.gitconnected.com/how-to-embed-local-llms-into-ios-apps-e8076c01f352", "titulo": "How to embed local LLMs into iOS apps (LibLlama.swift)", "ano": 2025, "nivel": "C", "tipo": "blog técnico"},
+    {"ref": "F4", "url": "https://dev.to/tattn/localllmclient-a-swift-package-for-local-llms-using-llamacpp-and-mlx-1bcp", "titulo": "LocalLLMClient — Swift package for local LLMs (llama.cpp + MLX + FoundationModels, tool calling experimental, FileDownloader)", "ano": 2025, "nivel": "B", "tipo": "artigo do autor do pacote"},
+    {"ref": "F5", "url": "https://onnxruntime.ai/docs/get-started/with-obj-c.html", "titulo": "Get started with ONNX Runtime for Objective-C (CocoaPods, Swift usage)", "ano": 2025, "nivel": "A", "tipo": "documentação oficial"},
+    {"ref": "F6", "url": "https://onnxruntime.ai/docs/api/objectivec/Classes/ORTValue.html", "titulo": "ORTValue Class Reference (tensores, tipos de elemento)", "ano": 2025, "nivel": "A", "tipo": "documentação oficial API"},
+    {"ref": "F7", "url": "https://github.com/microsoft/onnxruntime-swift-package-manager", "titulo": "onnxruntime-swift-package-manager (SPM oficial, iOS v15+, binary target)", "ano": 2024, "nivel": "A", "tipo": "código oficial Microsoft"},
+    {"ref": "F8", "url": "https://hackernoon.com/how-to-run-onnx-transformer-models-on-ios-with-swift", "titulo": "How to Run ONNX Transformer Models on iOS With Swift (input_ids/attention_mask int64)", "ano": 2025, "nivel": "C", "tipo": "blog técnico"},
+    {"ref": "F9", "url": "https://github.com/huggingface/swift-transformers", "titulo": "huggingface/swift-transformers (BPE, AutoTokenizer, Tokenizers em Swift)", "ano": 2025, "nivel": "A", "tipo": "código oficial Hugging Face"},
+    {"ref": "F10", "url": "https://huggingface.co/blog/swift-coreml-llm", "titulo": "Releasing Swift Transformers: Run On-Device LLMs in Apple Devices (suporte BPE)", "ano": 2023, "nivel": "B", "tipo": "blog oficial Hugging Face"},
+    {"ref": "F11", "url": "https://swiftpackageindex.com/huggingface/swift-transformers", "titulo": "swift-transformers — Swift Package Index (AutoTokenizer.from(modelFolder:), carga local)", "ano": 2025, "nivel": "B", "tipo": "documentação agregada"},
+    {"ref": "F12", "url": "https://github.com/ggml-org/llama.cpp/blob/master/common/chat.h", "titulo": "llama.cpp/common/chat.h (common_chat_tool_call, common_chat_templates)", "ano": 2025, "nivel": "A", "tipo": "código oficial"},
+    {"ref": "F13", "url": "https://github.com/ggml-org/llama.cpp/discussions/22408", "titulo": "Can custom grammars compose with tool calls? (GBNF + tools)", "ano": 2025, "nivel": "B", "tipo": "discussão técnica"},
+    {"ref": "F14", "url": "https://www.apple.com/newsroom/2025/09/apples-foundation-models-framework-unlocks-new-intelligent-app-experiences", "titulo": "Apple Foundation Models framework (guided generation, tool calling, 3B on-device)", "ano": 2025, "nivel": "A", "tipo": "comunicado oficial Apple"},
+    {"ref": "F15", "url": "https://developer.apple.com/videos/play/wwdc2025/286", "titulo": "Meet the Foundation Models framework (WWDC25)", "ano": 2025, "nivel": "A", "tipo": "documentação oficial Apple"},
+    {"ref": "F16", "url": "https://developer.apple.com/videos/play/wwdc2026/241", "titulo": "What's new in the Foundation Models framework (WWDC26 — tool calling melhorado, APIs iOS 26.4)", "ano": 2026, "nivel": "A", "tipo": "documentação oficial Apple"},
+    {"ref": "F17", "url": "https://swiftpackageindex.com/profclaw/swift-llama", "titulo": "swift-llama (binding Swift llama.cpp com parse de tool calls)", "ano": 2025, "nivel": "C", "tipo": "pacote open-source"},
+    {"ref": "F18", "url": "https://swiftpackageindex.com/pgorzelany/swift-llama-cpp", "titulo": "swift-llama-cpp (binários llama.cpp + API Swift para iOS/macOS)", "ano": 2025, "nivel": "C", "tipo": "pacote open-source"},
+    {"ref": "F19", "url": "https://github.com/ggml-org/llama.cpp/discussions/4423", "titulo": "Running llama.cpp directly on iOS devices (SpeziLLMLocal, Stanford Spezi)", "ano": 2023, "nivel": "B", "tipo": "discussão oficial"},
+    {"ref": "F20", "url": "https://prashanth.world/llava-on-ios", "titulo": "Running LLaVA on iOS with llama.cpp (sampling fora da API pública no exemplo)", "ano": 2024, "nivel": "C", "tipo": "blog técnico"},
+    {"ref": "F21", "url": "https://github.com/microsoft/onnxruntime-extensions", "titulo": "onnxruntime-extensions (custom ops de tokenizer BPE/WordPiece; pacote iOS CocoaPods)", "ano": 2025, "nivel": "A", "tipo": "código oficial Microsoft"},
+    {"ref": "F22", "url": "https://onnxruntime.ai/docs/tutorials/mobile", "titulo": "ONNX Runtime — Deploy on mobile (EPs XNNPACK/CoreML/NNAPI, avisos de particionamento)", "ano": 2025, "nivel": "A", "tipo": "documentação oficial"},
+    {"ref": "F23", "url": "https://www.xybrid.ai/blog/onnx-runtime-6x-faster-apple-silicon-coreml", "titulo": "ONNX Runtime + CoreML EP benchmark (6.8x em CNNs; eficácia menor em transformers)", "ano": 2025, "nivel": "C", "tipo": "blog técnico"},
+    {"ref": "F24", "url": "https://docs.flutter.dev/add-to-app/ios/project-setup", "titulo": "Integrate a Flutter app into your iOS project (add-to-app, oficial)", "ano": 2025, "nivel": "A", "tipo": "documentação oficial Flutter"},
+    {"ref": "F25", "url": "https://leancode.co/blog/flutter-add-to-app-overview-and-challenges", "titulo": "Flutter Add to App: Challenges, Pros & Cons (partilha de assets só em iOS)", "ano": 2024, "nivel": "C", "tipo": "blog técnico"},
+    {"ref": "F26", "url": "https://skip.dev/blog/shared-swift-model", "titulo": "Skip — Sharing a Swift Model Layer (SwiftUI iOS + Jetpack Compose Android)", "ano": 2024, "nivel": "C", "tipo": "blog técnico"},
+    {"ref": "F27", "url": "https://www.freecodecamp.org/news/how-to-use-monorepos-in-flutter", "titulo": "How to Use Monorepos in Flutter (apps/ + packages/, Melos)", "ano": 2025, "nivel": "C", "tipo": "tutorial"},
+    {"ref": "F28", "url": "https://sebastianroehl.substack.com/p/from-flutter-to-swiftui-a-case-study", "titulo": "From Flutter to SwiftUI — A Case Study (FocusKit)", "ano": 2025, "nivel": "C", "tipo": "caso real"},
+    {"ref": "F29", "url": "https://swiftpackageindex.com/ensan-hcl/swift-tokenizers", "titulo": "swift-tokenizers (fork de swift-transformers só para tokenizers)", "ano": 2024, "nivel": "C", "tipo": "pacote open-source"},
+    {"ref": "F30", "url": "https://onnxruntime.ai/docs/tutorials/on-device-training/ios-app.html", "titulo": "Building an iOS Application with ONNX Runtime (uso de ORTValue em Swift)", "ano": 2025, "nivel": "A", "tipo": "documentação oficial"},
+    {"ref": "F23_interno", "url": "repo://offline-ai-mobile (memória CoALA + lib/ + tools/specs/)", "titulo": "Fonte interna do projeto: memória CoALA (registos #11/#25/#32/#38/#39), lib/src/**, tools/specs/laya-encoding.md", "ano": 2026, "nivel": "A", "tipo": "fonte interna verificada"}
+  ],
+  "contradicoes": [
+    "O briefing pressupõe que iOS nativo pode ser 'preciso', mas a memória do projeto documenta que a MESMA base Flutter já compila e corre em iOS (device 47.6MB + simulador iPhone 18 Pro) com o XCFramework b11217 — não há barreira técnica a resolver com o port nativo; a decisão é de produto (UX nativa, tamanho, FoundationModels, política de distribuição).",
+    "lib/src/laya/wordpiece_tokenizer.dart sugere WordPiece pelo nome, mas o cabeçalho do ficheiro documenta que o artefacto declara model.type=BPE com pre-tokenizer ByteLevel — quem portar para Swift NÃO deve assumir WordPiece; alinhar com tools/specs/laya-encoding.md §5.",
+    "O blog oficial da Hugging Face (2023) afirma que o swift-transformers suporta a família BPE, mas a API de carga local evoluiu (issue #76 pedia carga de pasta local; hoje existe AutoTokenizer.from(modelFolder:)) — versões antigas do pacote não servem; pinar versão recente e validar com golden vectors."
+  ],
+  "lacunas": [
+    "Sem benchmark real do encoder Laya (model_q4.onnx 428MB) em iOS: não sabemos se CPU/XNNPACK cumpre latência alvo e se o CoreML EP aceita o grafo quantizado q4 — medição obrigatória antes de comprometer arquitetura.",
+    "Não há exemplos públicos de tool calling em Swift com parser XML estilo MiniCPM5 (tag function/param/CDATA); todos os exemplos encontrados usam JSON/OpenAI-style — o parser terá de ser escrito e testado contra os mesmos vetores do Dart.",
+    "A estimativa de esforço (40–57 dias) é analógica (base: 8155 linhas Dart medidas no repo + caso FocusKit); não existe estudo público de reescrita de app idêntica (LLM on-device + ONNX + 4 ecrãs).",
+    "Não verificadas as atuais App Store Review Guidelines para apps que descarregam modelos grandes em runtime (4.7/2.5.x) nem o entitlement com.apple.developer.kernel.increased-memory-limit no contexto de distribuição final.",
+    "Desempenho do binding Swift fino vs FFI Dart não medido (overhead de callbacks de streaming em Swift/ObjC é desprezável à partida, mas não validado)."
+  ],
+  "novas_perguntas": [
+    "Qual é o DRIVER real do port nativo — UX/Liquid Glass, tamanho do binário, FoundationModels, política de distribuição, ou apenas eliminação do runtime Flutter? Sem isto, a resposta pode ser 'não fazer M4'.",
+    "Benchmark iOS do Laya: CPU/XNNPACK vs CoreML EP com model_q4.onnx (latência, memória, aceitação do grafo q4) — qual o alvo de latência por decisão?",
+    "Estratégia de distribuição dos modelos (download verificado em runtime vs bundle) face às guidelines atuais da App Store?",
+    "Que infra de paridade Flutter↔SwiftUI adotar para golden vectors (tokenizer, parser XML, guardrails): ficheiros JSON em shared/ + runner de testes em ambas as linguagens?",
+    "iOS mínimo da app nativa: 16.0 (como o pod onnxruntime-objc do Flutter) ou subir para 26 para opção FoundationModels como motor alternativo do ecrã Laya?"
+  ],
+  "consultas": [
+    "tavily search: llama.cpp SwiftUI example llama.swiftui LocalLLM Swift bindings iOS app (depth advanced)",
+    "tavily search: onnxruntime-objc ORTValue Swift iOS API int64 tensor inference example (depth advanced)",
+    "tavily search: Swift BPE ByteLevel tokenizer implementation swift-transformers HuggingFace Tokenizers iOS (depth advanced)",
+    "tavily search: Swift tool calling loop llama.cpp chat template guardrails on-device LLM agent iOS (depth advanced)",
+    "tavily search: onnxruntime Swift Package Manager SPM iOS pod onnxruntime-objc mobile package (depth advanced)",
+    "tavily search: monorepo Flutter native SwiftUI share assets models folder structure git submodule app project layout (depth advanced)",
+    "tavily search: Apple FoundationModels framework tool calling iOS 26 constraints guided generation availability (depth advanced)",
+    "tavily search: llama.cpp chat.h example common chat tool call grammar GBNF chat.cpp template (depth advanced)",
+    "tavily search: rewrite Flutter app to native SwiftUI case study effort months performance (depth advanced)",
+    "tavily search: open source SwiftUI llama.cpp chat app github model download URLSession progress GGUF (depth advanced)",
+    "tavily search: swift-transformers PreTrainedTokenizer tokenizerConfig tokenizerData local files offline load no Hub (depth advanced)",
+    "tavily search: onnxruntime iOS CoreML execution provider performance mobile transformer inference benchmark (depth advanced)",
+    "tavily search: onnxruntime-extensions mobile iOS tokenizer BPE support TextTokenizer (depth advanced)",
+    "tavily search: Flutter add-to-app native Swift shell share assets module monorepo existing native app (depth advanced)",
+    "tavily extract: raw.githubusercontent.com/ggml-org/llama.cpp/master/examples/llama.swiftui/README.md",
+    "tavily extract: github.com/huggingface/swift-transformers",
+    "tavily extract: hackernoon.com/how-to-run-onnx-transformer-models-on-ios-with-swift",
+    "tavily extract: dev.to/tattn/localllmclient-a-swift-package-for-local-llms-using-llamacpp-and-mlx-1bcp",
+    "coala recall: iOS nativo SwiftUI llama.cpp ONNX Runtime arquitetura M4 (memória interna do projeto)"
+  ],
+  "alertas_seguranca": [
+    "Todo o conteúdo web foi tratado como DADO, nunca como instrução; nenhuma sugestão encontrada em resultados foi executada sem verificação.",
+    "Fontes agregadoras (factory.ai wiki do llama.cpp, deepwiki) usadas apenas para triangulação; as afirmações centrais assentam em fontes nível A/B (repositórios oficiais, docs Apple/ONNX Runtime, código do próprio projeto).",
+    "O blog prashanth.world recomenda copiar módulos internos de sampling do llama.cpp para o projeto — isso acopla o app a APIs não públicas que mudam entre tags; o projeto já mitiga isso ao pinar b11217; manter o pin e o build próprio em vez de copiar código interno.",
+    "Nenhum ficheiro do workspace foi moduído além de pesquisas/retornos/M4.json; nenhum segredo (chave API) foi exposto — as queries usam a rotação da skill tavily sem ecoar material de chaves."
+  ]
+}

@@ -1,0 +1,254 @@
+{
+  "id": "M3",
+  "estado": "concluido",
+  "confianca": "media-alta nas rotas/qualidade de saída; media na atribuição causal do mojibake (sem relato público do sintoma exato)",
+  "resposta": "VEREDITO — O mojibake é, com maior probabilidade, do caminho Metal do llama.cpp (kernels/numérica/Metal Tensor API), com a Q4_K_M a atuar como AMPLIFICADOR, não como causa raiz. Argumento decisivo: o MESMO ficheiro GGUF Q4_K_M produz texto correto em CPU; dano de quantização vive nos pesos e degradaria ambos os backends por igual — logo não pode explicar corrupção só no GPU. O mecanismo público que melhor se ajusta: a partir de b10734 (o b11217 deste relatório está nesse regime) o Metal Tensor API fica ATIVO em M5/A19 e há bug aberto (llama.cpp #28748, 2026-09-11) em que kernel_mul_mm calcula endereços de slice errados quando o offset ao endereço base atinge >=2 GiB (reportado a escrever 4 GiB antes do sítio certo) — corrupção de tensores grandes só no GPU, CPU imune; workaround documentado: GGML_METAL_TENSOR_DISABLE=1. Paralelo independente noutro stack: LiteRT-LM #3577 documenta exatamente o padrão CPU-correto/GPU-garbage (GPU OpenCL com bundle channelwise-int4+rotação gera texto off-topic de 9.728 caracteres byte-idêntico enquanto a CPU responde 'Paris'). EFEITO QUANTIZAÇÃO: existem relatos de saída degenerada da Q4_K_M no MiniCPM5-2B (runaway de 92.1% em HumanEval+ com defaults de sampler, caindo para 11.0% com --repeat-penalty 1.15; formato documentado é repetição/runaway, NÃO mojibake); Q8_0 é '~indistinguishable from F16' na tabela oficial da OpenBMB, mas NENHUMA fonte confirma que Q8_0 no Metal corrige o mojibake — é a experiência discriminatória a fazer (ver novas_perguntas: se Q8_0 piorar/aparecer cedo, suspeitar do bug dos 2 GiB; se corrigir, suspeitar de amplificação de ruído de quantização pela numérica GPU). IMPORTANTE: primeiro distinguir o sintoma — se o 'mojibake' for na verdade loop de repetição de tokens, o fix documentado é o sampler completo (--repeat-penalty 1.15 --min-p 0.0 --temp 1.0 --top-p 0.95), o min_p=0.05 por omissão é sabidamente tóxico neste modelo. (1) MLX: existem conversões (openbmb/MiniCPM5-2B-MLX; mlx-community/MiniCPM5-2B-mlx-4Bit e MiniCPM5-1B-4bit; mlx.md oficial). Qualidade boa, ZERO relatos de mojibake na rota MLX: o doc oficial do LM Studio afirma que a resposta de matemática da build MLX 4-bit 'matches F16 quality' e recomenda o runtime MLX em Apple Silicon (~60% mais rápido que a GGUF Q4_K_M equivalente, medido no M4). Sem relatos de qualidade via MLXLMKit/MLX Swift em iOS (lacuna) e sem números M1/M2 publicados para o MiniCPM5; única ressalva de runtime é de performance (mlx-swift-lm #124: Swift/MLXLMKit 7,3x mais lento que mlx-lm Python em MoE — o MiniCPM5 é dense, efeito esperado menor). (2) CoreML/Core AI: NÃO foi encontrada conversão do MiniCPM5 no coremltools/llm-examples oficial da Apple (não confirmada negativamente — página não exposta; mas nenhuma fonte a menciona). A rota Apple nativa COM artefactos publicados é a Core AI (.aimodel via coreai.llm.export, iOS 27/macOS 27, sucessora do Core ML): MiniCPM5-1B-CoreAI e MiniCPM5-2B-CoreAI no coreai-model-zoo com gates token-exact vs fp32 HF (2B int8: '16/16 exact vs fp32 HF on Mac, 24/24 + 24/24 on device'; bundles ANE passam device gate 3/3). Qualidade sem mojibake; ressalva: o preset 4-bit stock da Apple FALHOU o gate num bundle ANE do 1B ('Apple's 4-bit preset fails it') e uma variante per-channel do 1B 'never halted' — presets 4-bit exigem validação por bundle. (3) LiteRT-LM: FUNCIONA BEM. litert-community/MiniCPM5-2B (MiniCPM5-2B_int4.litertlm / MiniCPM5-2B_int8.litertlm): testado oficialmente no iPhone 17 Pro com o int4 nos DOIS backends (Metal GPU e CPU) e com gate de correção independente (7/8 Metal GPU e 7/8 CPU; a única falha é artefacto de prompt, igual no bf16) — sem mojibake; no Galaxy S26 (Adreno) ambos os ficheiros geram corretamente com delegação OpenCL completa (1873/1873 nós). Ressalvas: o int4 em modo thinking NÃO conclui raciocínios (0/10 cadeias fechadas em CPU vs 9/10 do bf16/int8 — usar int8 ou desligar thinking); o int8 no iOS precisa do entitlement com.apple.developer.kernel.increased-memory-limit (secção de pesos de 2.33 GB); e há o issue #3577 (divergência GPU/CPU para uma receita int4 específica com rotação). (4) Q4_K_M: relatos de degeneração EXISTEM (runaway 92.1% sem repeat-penalty; 'Q4KM has the repetition bug'; F-Labs documenta que INT4 uniforme/RTN causa 'severe degradation across 42 sequential layers'), mas a degradação de benchmark medida é moderada (OpenTeams: cliff apenas para lá de IQ4_XS, Q6_K indistinguível de F16; eaddario: Q4_K avg ~45.7 vs Q8 ~47+; tabela OpenBMB: Q4_K_M 'small drop'). Nenhuma fonte descreve mojibake causado pela quantização em si; e no LiteRT a mesma int4 dá 10/10 de cadeias fechadas no Metal GPU vs 0/10 no CPU — 'fp16 rounding steering the trajectory' — prova documentada de que a numérica GPU altera a trajetória face à CPU, logo diferenças CPU-vs-Metal não são explicáveis pela quantização só. Q8_0 corrige o runaway com o sampler certo; se corrige o mojibake no Metal NÃO está documentado. (5) Ollama/LM Studio/MPS: ZERO relatos de mojibake do MiniCPM5 com GPU Apple; o problema público nesses frontends é repetição por defaults de sampler (min_p=0.05; falta de repeat-penalty). Existem quebras GERAIS do Metal no llama.cpp (gibberish de 2023 com outros modelos; LM Studio bug-tracker #2040: o runtime 2.21 falha o self-test do tensor API em M5 com A/B no mesmo modelo) mas nada específico do MiniCPM5. ROTA PRÁTICA RECOMENDADA para iOS nativo com qualidade provada: LiteRT-LM (int4 no iPhone; int8 onde o thinking tem de terminar) ou Core AI int8; para Apple Silicon, MLX 4-bit.",
+  "afirmacoes": [
+    {
+      "texto": "O padrão 'mesmo GGUF correto em CPU, corrompido em Metal' exige uma causa dependente do backend: dano de quantização vive nos pesos e afetaria CPU e GPU por igual, logo a Q4_K_M não pode ser a causa raiz do mojibake; a causa primária é o caminho Metal do llama.cpp.",
+      "fontes": ["S21", "S23", "S10", "S8"],
+      "citacao_literal": "once the tensor path is active on an M5, `kernel_mul_mm` computes wrong slice addresses when the offset between the slice address and the tensor base address reaches 2 GB or more (S21)",
+      "central": true
+    },
+    {
+      "texto": "Há bug aberto e ativo no caminho Metal Tensor API do llama.cpp (ativo em M5/A19 a partir de b10734; o b11217 está nesse regime): endereçamento errado de slices >=2 GiB no kernel_mul_mm, com workaround GGML_METAL_TENSOR_DISABLE=1 — mecanismo suficiente para produzir tokens corrompidos/mojibake só no GPU.",
+      "fontes": ["S21", "S23", "S22", "S24"],
+      "citacao_literal": "the Tensor API path was observed writing 4 GiB earlier than expected (S23); Until it lands, `GGML_METAL_TENSOR_DISABLE=1` remains a legitimate workaround for anyone hitting tensor-path corruption on large tensors (S21)",
+      "central": true
+    },
+    {
+      "texto": "Existe precedente direto do padrão CPU-correto/GPU-garbage noutro runtime com o próprio MiniCPM5-2B: LiteRT-LM issue #3577, GPU OpenCL produz texto off-topic de 9.728 caracteres byte-idêntico entre runs enquanto a CPU responde 'Paris'.",
+      "fontes": ["S10"],
+      "citacao_literal": "four GPU runs on two days give the same 9,728-character off-topic text byte for byte … the CPU answers `The capital of France is Paris.` every time (S10)",
+      "central": true
+    },
+    {
+      "texto": "A Q4_K_M do MiniCPM5-2B tem relato público de saída DEGENERADA, mas no formato runaway/repetição (92.1% em HumanEval+ com defaults de sampler, 6.1 de score), corrigida para 11.0% de runaway e 71.3 de score com --repeat-penalty 1.15 — não no formato mojibake.",
+      "fontes": ["S20", "S7", "S1"],
+      "citacao_literal": "running the Q4KM GGUF model with the default documented settings (which omitted `repeat-penalty`) produced a 92.1% runaway rate: the model loops indefinitely on the same tokens … With `--repeat-penalty 1.15` added: HumanEval+ score jumps from 6.1 to 71.3 (S20)",
+      "central": true
+    },
+    {
+      "texto": "O MiniCPM5 exige min_p=0.0: o default 0.05 do llama.cpp/mx-lm causa saída repetitiva neste modelo — pitfall transversal a todas as rotas GGUF/MLX e causa possível de 'saída corrompida' que na verdade é loop.",
+      "fontes": ["S7", "S1", "S20"],
+      "citacao_literal": "In llama.cpp, the default `min_p=0.05` can lead to repetitive output … To prevent this, we set `min_p=0.0`. (S7)",
+      "central": true
+    },
+    {
+      "texto": "A rota MLX tem qualidade de saída boa e sem mojibake reportado: o doc oficial do LM Studio afirma que a resposta de matemática da build MLX 4-bit corresponde à qualidade F16, com split think/answer correto via reasoning_content.",
+      "fontes": ["S3", "S11", "S12", "S13"],
+      "citacao_literal": "the math answer matches F16 quality. Use the GGUF build only when cross-platform parity matters. (S3)",
+      "central": true
+    },
+    {
+      "texto": "Existem conversões Core AI (.aimodel, sucessora do Core ML em iOS 27/macOS 27) do MiniCPM5-1B e MiniCPM5-2B com qualidade token-exact vs fp32 HF no device — rota Apple nativa com qualidade provada, sem mojibake.",
+      "fontes": ["S15", "S14"],
+      "citacao_literal": "MiniCPM5-2B (OpenBMB, int8 — 16/16 exact vs fp32 HF on Mac, 24/24 + 24/24 on device) (S15)",
+      "central": true
+    },
+    {
+      "texto": "Dentro da rota Core AI, presets 4-bit não são automaticamente fiáveis: o preset 4-bit stock da Apple falhou o device gate num bundle ANE do MiniCPM5-1B (a variante per-channel desse bundle 'never halted'), passando apenas a 8-bit palettized.",
+      "fontes": ["S15"],
+      "citacao_literal": "MiniCPM5-1B, Neural Engine (OpenBMB, 8-bit palettized static iOS export, AOT h18p — device gate PASS 3/3 vs fp32 HF, Apple's 4-bit preset fails it; … the earlier per-channel bundle never halted) (S15)",
+      "central": true
+    },
+    {
+      "texto": "O LiteRT-LM (litert-community/MiniCPM5-2B int4/int8) produz saída correta em iOS e Android: iPhone 17 Pro, int4 em Metal GPU e CPU passa o gate de 8 perguntas em ambas as pernas (7/8 cada; a falha comum é artefacto de prompt também presente no bf16); Galaxy S26 gera corretamente em GPU e CPU com delegação OpenCL completa.",
+      "fontes": ["S8", "S6", "S9"],
+      "citacao_literal": "On an iPhone 17 Pro the int4 file passes the same 8-question gate on both backends … Metal GPU 7/8 (init 5.7 s) and CPU 7/8 (init 2.2 s) … so a prompt-format artifact rather than conversion damage (S8)",
+      "central": true
+    },
+    {
+      "texto": "Em LiteRT, a int4 tem dano específico no modo thinking (0/10 raciocínios fechados em CPU vs 9/10 do bf16/int8) e a MESMA int4 fecha 10/10 no Metal GPU — descrito na fonte como arredondamento fp16 a desviar a trajetória: prova documentada de que a numérica GPU muda o comportamento face à CPU e que resultados GPU não provam qualidade.",
+      "fontes": ["S8"],
+      "citacao_literal": "int4 closes 0/10 on CPU … On the Metal GPU with the runtime's default fp16 activations the same int4 file happened to close 10/10 … but that is fp16 rounding steering the trajectory, not a property to rely on (S8)",
+      "central": true
+    },
+    {
+      "texto": "A Q4_K_M tem degradação de benchmark MODERADA e medida (não mojibake): o cliff de qualidade fica para lá de IQ4_XS, Q6_K é indistinguível de F16, e as evals da eaddario mostram Q4_K ~45.7 de média vs Q8 ~47+; isolada, a quantização não explica corrupção exclusiva do Metal.",
+      "fontes": ["S18", "S16", "S17", "S5"],
+      "citacao_literal": "Q6_K is indistinguishable from the F16 baseline; IQ4_XS shows measurable degradation and is the last useable quant before the cliff drop into the Q3 region (S18)",
+      "central": true
+    },
+    {
+      "texto": "A fragilidade do INT4 neste modelo de 42 camadas está documentada: quantização uniforme (INT4 naive/RTN) causa degradação severa acumulada nas 42 camadas sequenciais — tornando plausível a amplificação de erros numéricos do GPU sobre pesos Q4_K_M.",
+      "fontes": ["S19"],
+      "citacao_literal": "Standard uniform post-training quantization (such as naive INT4 or simple RTN) causes severe degradation across 42 sequential layers (S19)",
+      "central": false
+    },
+    {
+      "texto": "A tabela oficial de quants da OpenBMB classifica Q8_0 como '~indistinguishable from F16' e Q4_K_M como 'small drop, ideal for laptops'; guias recomendam Q8_0 para tool calling sério e Q4_K_M só para portátil/curto.",
+      "fontes": ["S5", "S20", "S8"],
+      "citacao_literal": "Q8_0 | 2.68 GB | ~indistinguishable from F16 … Q4_K_M | 1.56 GB | small drop, ideal for laptops (S5)",
+      "central": false
+    },
+    {
+      "texto": "Não há NENHUM relato público encontrado de mojibake do MiniCPM5 em Ollama/LM Studio/MPS (buscas em EN/PT/ZH); os relatos gerais de 'gibberish' do llama.cpp+Metal são de outros modelos/épocas e não implicam o MiniCPM5.",
+      "fontes": ["S25", "S26", "S20", "S3"],
+      "citacao_literal": "llama.cpp with Metal GPU inference only produces gibberish (S25, 2023, modelo Wizard — não MiniCPM5)",
+      "central": false
+    },
+    {
+      "texto": "Em Apple Silicon a variante MLX 4-bit é ~60% mais rápida que a GGUF Q4_K_M equivalente (LM Studio, M4) e a ferramenta swift do MLX (MLXLMKit) tem overhead documentado face ao mlx-lm Python (7,3x mais lento em MoE), relevante para estimativas de performance em iOS.",
+      "fontes": ["S3", "S28"],
+      "citacao_literal": "MoE models 7.3x slower than Python mlx-lm (per-token) … Swift (11.7 T/s) … Python (85 T/s) (S28)",
+      "central": false
+    },
+    {
+      "texto": "Não foi encontrada conversão do MiniCPM5 no coremltools/llm-examples oficial da Apple; a arquitetura é LlamaForCausalLM padrão (42 camadas, GQA 16Q/2KV, 2048 hidden), pelo que é teoricamente conversível pelo caminho Llama, mas sem artefacto publicado nesse repo.",
+      "fontes": ["S1", "S15"],
+      "citacao_literal": "It is a dense text model with a standard Llama architecture (S1, paráfrase da model card/guides)",
+      "central": false
+    }
+  ],
+  "rotas": [
+    {
+      "runtime": "MLX — mlx-lm / MLXLMKit (openbmb/MiniCPM5-2B-MLX; mlx-community/MiniCPM5-2B-mlx-4Bit e MiniCPM5-1B-4bit)",
+      "qualidade": "BOA, sem mojibake em nenhum relato. Doc oficial LM Studio: a resposta de matemática da build MLX 4-bit 'matches F16 quality'; split think/answer automático correto (reasoning_content). Conversão 4-bit = 4.501 bpw com embed_tokens/lm_head em maior precisão ('preserves quality on the small, untied vocabulary head'). Lacuna: não há relatos de qualidade do MiniCPM5 via MLXLMKit/MLX Swift em iOS — só mlx-lm Python e LM Studio desktop.",
+      "performance": "Apple Silicon: MLX Q4 ~60% mais rápido que GGUF Q4_K_M equivalente (LM Studio, M4); LM Studio lista runtime mlx-llm 1.6.0 vs llama.cpp-mac-arm64-apple-metal 2.14.0. Sem números M1/M2 publicados para o MiniCPM5 (dados são M4/M4 Max). Ressalva iOS/Swift: MLXLMKit medido 7,3x mais lento que mlx-lm Python em MoE (11.7 vs 85 tok/s, mlx-swift-lm #124) — MiniCPM5 é dense, efeito esperado menor.",
+      "evidencia": "Docs oficiais OpenBMB (mlx.md, lmstudio.md) + model cards mlx-community + issue mlx-swift-lm #124; zero menções a mojibake/corrupted output na rota MLX em 5 buscas.",
+      "fontes": ["S3", "S4", "S11", "S12", "S13", "S28"]
+    },
+    {
+      "runtime": "Core AI (.aimodel via coreai.llm.export — MiniCPM5-1B-CoreAI e MiniCPM5-2B-CoreAI; coreai-model-zoo) / Core ML clássico (coremltools llm-examples)",
+      "qualidade": "EXCELENTE na rota Core AI: token-exact vs fp32 HF. 2B int8: '16/16 exact vs fp32 HF on Mac, 24/24 + 24/24 on device'; 1B int8 per-block-32: 24/24+6/6-incl.-stop no device, 16/16 no Mac (a variante per-channel anterior 'never halted'); bundles ANE (palettized, AOT h18p) passam device gate 3/3. Sem mojibake. ALERTA: o preset 4-bit stock da Apple falhou o gate no bundle ANE do 1B. Core ML clássico: NÃO encontrada conversão do MiniCPM5 no coremltools/llm-examples (não confirmada negativamente).",
+      "performance": "iPhone 17 Pro (A19 Pro): 2B int8 GPU ~22 tok/s decode / ~128 tok/s prefill (tabela do zoo); 1B int8: 61.7–66.8 tok/s decode, 68–247 tok/s prefill conforme registo; o ANE 8-bit palettized do 1B bate o int8 GPU no teste interleaved (76.8/76.8 vs 67.1/64.4 em p128/g256). 2B ANE 4-bit palettizado com AOT h18p também aprovado no gate.",
+      "evidencia": "coreai-model-zoo (registos de validação por modelo, com gates device vs fp32 HF) + card coreai-community/MiniCPM5-1B-CoreAI (PipelinedBench no iPhone 17 Pro: int8 66.8 tok/s decode, 'lossless (24/24 token-exact vs HF fp32)').",
+      "fontes": ["S15", "S14", "S1"]
+    },
+    {
+      "runtime": "LiteRT-LM (litert-community/MiniCPM5-2B — MiniCPM5-2B_int4.litertlm / MiniCPM5-2B_int8.litertlm; AI Edge Gallery Android; Swift API iOS; Kotlin Android)",
+      "qualidade": "BOA/CORRETA em ambos os backends. iPhone 17 Pro: int4 no gate de 8 perguntas — Metal GPU 7/8 e CPU 7/8 (a falha comum 'green' é artefacto de prompt, igual no bf16). Galaxy S26 (Adreno): ambos os ficheiros geram corretamente em GPU e CPU com delegação OpenCL completa (1873/1873 nós, zero ops rejeitadas); o runtime separa o thought on-device. Ressalvas: int4 em thinking não conclui raciocínio (0/10 em CPU, median ~13.700 chars sem fechar; bf16/int8 9/10) — usar int8 ou desligar thinking; int8 no iOS precisa do entitlement increased-memory-limit (secção de pesos 2.33 GB); issue #3577: divergência GPU/CPU para o bundle dynamic_wi4c_hr_afp32 (receita int4 channelwise+rotação), não para os bundles int4/int8 padrão.",
+      "performance": "M4 Max (Metal GPU, litert-lm 0.17.0): int4 1699 tok/s prefill / 92.8 tok/s decode, TTFT 0.16 s, init 3.7 s; int8 1405/74.7. M4 Max CPU: int4 149/31.1. iPhone 17 Pro: init 5.7 s (GPU) / 2.2 s (CPU). Galaxy S26 (Adreno, v0.16.0): int4 GPU 401–411 tok/s prefill / 16.1–18.6 decode; int4 CPU 39–72/15.6–15.8; peak RSS 1.14–2.90 GB.",
+      "evidencia": "Docs oficiais OpenBMB litert.md ('Tested on an iPhone 17 Pro with the int4 file on both backends') + card mlboydaisuke/MiniCPM5-2B-LiteRT (gates de correção e benchmarks) + LiteRT-LM #3577 (contraprova de bundles frágeis).",
+      "fontes": ["S6", "S8", "S9", "S10"]
+    },
+    {
+      "runtime": "llama.cpp-Metal (GGUF Q4_K_M, build b11217) — ROTA COM PROBLEMA (mojibake)",
+      "qualidade": "MOJIBAKE reproduzido localmente (Q4_K_M); texto correto em CPU com o mesmo ficheiro. SEM relato público identificado do mesmo sintoma no MiniCPM5 (buscas EN/PT/ZH). Mecanismos públicos compatíveis, por ordem de probabilidade: (1) corrupção no Metal Tensor API — ativo em M5/A19 desde b10734; bug #28748 (kernel_mul_mm, slices >=2 GiB) e #27473 (tensor API inert por falha de compilação); workaround GGML_METAL_TENSOR_DISABLE=1; (2) deriva numérica GPU (fp16) sobre pesos Q4_K_M frágeis a exacerbar runaway/repetição (92.1% com defaults); (3) sampler mal configurado (min_p=0.05 por omissão) a produzir loops que parecem corrupção.",
+      "performance": "Não é o problema: velocidade OK em Metal (o reddit de gibberish de 2023 reportava ~20 t/s com saída corrompida).",
+      "evidencia": "Analogia com modelfit.io/RAMGPT (bug 2GiB do tensor path), llama.cpp #27473/#28748, LM Studio bug-tracker #2040 (A/B no mesmo modelo), LiteRT-LM #3577 (padrão CPU-good/GPU-garbage com MiniCPM5) + a observação local CPU-vs-Metal.",
+      "fontes": ["S21", "S23", "S22", "S24", "S20", "S25", "S26"]
+    },
+    {
+      "runtime": "Ollama / LM Studio (GGUF via llama.cpp-Metal ou MLX via mlx-llm; MPS)",
+      "qualidade": "Sem mojibake do MiniCPM5 reportado em nenhum frontend. Doc oficial (ollama.md): Q8_0 '~indistinguishable from F16', Q4_K_M 'small drop, ideal for laptops'; LM Studio: o runtime MLX é o recomendado em Apple Silicon ('math answer matches F16 quality'); LM Studio bug-tracker #2040 mostra que o tensor API pode falhar consoante o bundle do runtime (upstream b9592 passa 'has tensor = true' onde o runtime 2.21 do LM Studio falha o self-test) — o comportamento do Metal varia com o build empacotado. Pitfall transversal: repetição/runaway sem --repeat-penalty 1.15 e --min-p 0.0.",
+      "performance": "M4 (LM Studio): MLX Q4 ~60% mais rápido que GGUF Q4_K_M; Ollama 0.34/0.35 empacota llama.cpp próprio (b10864 na 0.34.1) — builds variam e podem conter/não conter o tensor path.",
+      "evidencia": "ollama.md/lmstudio.md oficiais + Better Stack (repetition bug) + LM Studio bug-tracker #2040 + jacar.es (medições Q4_K_M/Q8_0 no Ollama).",
+      "fontes": ["S5", "S3", "S20", "S24", "S30"]
+    }
+  ],
+  "fontes": [
+    {"ref": "S1", "url": "https://huggingface.co/openbmb/MiniCPM5-2B", "titulo": "openbmb/MiniCPM5-2B — model card oficial (tabela de backends, sampling min_p=0.0)", "ano": "2026", "nivel": "A", "tipo": "model_card_oficial"},
+    {"ref": "S2", "url": "https://github.com/OpenBMB/MiniCPM/blob/main/docs/deployment/llama_cpp.md", "titulo": "OpenBMB/MiniCPM docs — Deploy MiniCPM5 with llama.cpp (F16/Q8_0/Q4_K_M, --min-p 0.0)", "ano": "2026", "nivel": "A", "tipo": "documentacao_oficial"},
+    {"ref": "S3", "url": "https://github.com/OpenBMB/MiniCPM/blob/main/docs/deployment/lmstudio.md", "titulo": "OpenBMB/MiniCPM docs — Deploy MiniCPM5 with LM Studio (GGUF vs MLX; 'math answer matches F16 quality')", "ano": "2026", "nivel": "A", "tipo": "documentacao_oficial"},
+    {"ref": "S4", "url": "https://github.com/OpenBMB/MiniCPM/blob/main/docs/deployment/mlx.md", "titulo": "OpenBMB/MiniCPM docs — Deploy MiniCPM5 with MLX (4.501 bpw, embed/lm_head em maior precisão)", "ano": "2026", "nivel": "A", "tipo": "documentacao_oficial"},
+    {"ref": "S5", "url": "https://github.com/OpenBMB/MiniCPM/blob/main/docs/deployment/ollama.md", "titulo": "OpenBMB/MiniCPM docs — Deploy MiniCPM5 with Ollama (tabela de quants: Q8_0 '~indistinguishable from F16')", "ano": "2026", "nivel": "A", "tipo": "documentacao_oficial"},
+    {"ref": "S6", "url": "https://github.com/OpenBMB/MiniCPM/blob/main/docs/deployment/litert.md", "titulo": "OpenBMB/MiniCPM docs — Deploy MiniCPM5 com LiteRT-LM (iPhone 17 Pro, Metal GPU+CPU, entitlement iOS)", "ano": "2026", "nivel": "A", "tipo": "documentacao_oficial"},
+    {"ref": "S7", "url": "https://github.com/openbmb/minicpm", "titulo": "OpenBMB/MiniCPM README — min_p=0.0 obrigatório ('default min_p=0.05 can lead to repetitive output')", "ano": "2026", "nivel": "A", "tipo": "documentacao_oficial"},
+    {"ref": "S8", "url": "https://huggingface.co/mlboydaisuke/MiniCPM5-2B-LiteRT", "titulo": "mlboydaisuke/MiniCPM5-2B-LiteRT — conversion notes, correctness gates (iPhone/Galaxy) e o dano da int4 no thinking", "ano": "2026", "nivel": "B", "tipo": "model_card_com_medições"},
+    {"ref": "S9", "url": "https://huggingface.co/litert-community/MiniCPM5-2B", "titulo": "litert-community/MiniCPM5-2B — bundles int4/int8 .litertlm (citado pelos docs oficiais)", "ano": "2026", "nivel": "B", "tipo": "repositorio_de_modelos"},
+    {"ref": "S10", "url": "https://github.com/google-ai-edge/LiteRT-LM/issues/3577", "titulo": "LiteRT-LM #3577 — GPU (OpenCL, Adreno) output diverges from CPU for MiniCPM5-2B dynamic_wi4c_hr_afp32", "ano": "2026", "nivel": "B", "tipo": "issue_com_reproducer"},
+    {"ref": "S11", "url": "https://huggingface.co/mlx-community/MiniCPM5-2B-mlx-4Bit", "titulo": "mlx-community/MiniCPM5-2B-mlx-4Bit (conversão mlx-lm 0.31.2)", "ano": "2026", "nivel": "B", "tipo": "model_card"},
+    {"ref": "S12", "url": "https://huggingface.co/mlx-community/MiniCPM5-1B-4bit", "titulo": "mlx-community/MiniCPM5-1B-4bit (conversão mlx-lm 0.31.2)", "ano": "2026", "nivel": "B", "tipo": "model_card"},
+    {"ref": "S13", "url": "https://modelscope.ai/models/OpenBMB/MiniCPM5-2B-MLX", "titulo": "OpenBMB/MiniCPM5-2B-MLX (ModelScope) — build MLX oficial", "ano": "2026", "nivel": "B", "tipo": "model_card"},
+    {"ref": "S14", "url": "https://huggingface.co/coreai-community/MiniCPM5-1B-CoreAI", "titulo": "coreai-community/MiniCPM5-1B-CoreAI — .aimodel int8, PipelinedBench iPhone 17 Pro ('lossless 24/24 token-exact')", "ano": "2026", "nivel": "B", "tipo": "model_card_com_medições"},
+    {"ref": "S15", "url": "https://github.com/john-rocky/coreai-model-zoo", "titulo": "coreai-model-zoo — registos de validação MiniCPM5-1B/2B-CoreAI (device gates vs fp32 HF, ANE, AOT h18p)", "ano": "2026", "nivel": "B", "tipo": "repositorio_com_registos_de_validacao"},
+    {"ref": "S16", "url": "https://huggingface.co/eaddario/MiniCPM5-2B-GGUF", "titulo": "eaddario/MiniCPM5-2B-GGUF — perplexidade/evals por quant (Q4_K avg 45.71; Q6_K 48.29)", "ano": "2026", "nivel": "B", "tipo": "model_card_com_medições"},
+    {"ref": "S17", "url": "https://huggingface.co/eaddario/MiniCPM5-1B-GGUF", "titulo": "eaddario/MiniCPM5-1B-GGUF — evals por quant (Q8_0 avg 40.95) e notas de regras de quantização", "ano": "2026", "nivel": "B", "tipo": "model_card_com_medições"},
+    {"ref": "S18", "url": "https://openteams.com/minicpm5-2b-quantization-report", "titulo": "OpenTeams — MiniCPM5-2B quantization report (cliff para lá de IQ4_XS; Q6_K = F16)", "ano": "2026", "nivel": "B", "tipo": "relatorio_tecnico"},
+    {"ref": "S19", "url": "https://huggingface.co/F-Labs/MiniCPM5-2B-Hadamard-GSQ", "titulo": "F-Labs/MiniCPM5-2B-Hadamard-GSQ — INT4 uniforme causa degradação severa em 42 camadas", "ano": "2026", "nivel": "B", "tipo": "model_card_tecnico"},
+    {"ref": "S20", "url": "https://betterstack.com/community/guides/ai/minicpm5-2b", "titulo": "Better Stack — MiniCPM5-2B guide ('repetition bug': Q4KM runaway 92.1% -> 11.0% com repeat-penalty 1.15)", "ano": "2026", "nivel": "C", "tipo": "guia_secundario"},
+    {"ref": "S21", "url": "https://modelfit.io/blog/m5-mac-metal-tensor-api-llama-cpp-fix", "titulo": "modelfit.io — M5 Macs and the Metal Tensor API (bug kernel_mul_mm >=2 GiB; GGML_METAL_TENSOR_DISABLE=1)", "ano": "2026", "nivel": "C", "tipo": "blog_tecnico"},
+    {"ref": "S22", "url": "https://github.com/ggml-org/llama.cpp/issues/27473", "titulo": "llama.cpp #27473 — Metal tensor API silently inert on M5+/A19+ (MTLCompileOptions.languageVersion)", "ano": "2026", "nivel": "B", "tipo": "issue_upstream"},
+    {"ref": "S23", "url": "https://ramgpt.org/articles/llama-cpp-metal-tensor-slice-2gib-bug", "titulo": "RAMGPT — llama.cpp Metal Tensor Bug: the 2 GiB Slice Boundary (PR #28748, kernel_mul_mm escreve 4 GiB antes)", "ano": "2026", "nivel": "C", "tipo": "blog_tecnico"},
+    {"ref": "S24", "url": "https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/2040", "titulo": "LM Studio bug-tracker #2040 — M5 Macs: runtime 2.21 falha o self-test do Metal tensor-API (A/B no mesmo modelo)", "ano": "2026", "nivel": "B", "tipo": "issue_com_ab"},
+    {"ref": "S25", "url": "https://www.reddit.com/r/LocalLLaMA/comments/14bqvgv/llamacpp_with_metal_gpu_inference_only_produces", "titulo": "r/LocalLLaMA — llama.cpp com Metal só produz gibberish/乱码 (2023; modelo Wizard, não MiniCPM5)", "ano": "2023", "nivel": "D", "tipo": "forum"},
+    {"ref": "S26", "url": "https://github.com/ggml-org/llama.cpp/issues/11463", "titulo": "llama.cpp #11463 — Misc. bug: gibberish output (vários quants; macOS)", "ano": "2025", "nivel": "D", "tipo": "issue_upstream"},
+    {"ref": "S27", "url": "https://www.mindstudio.ai/blog/minicpm5-2b-gguf-local-test", "titulo": "MindStudio — MiniCPM5-2B GGUF: How Does It Hold Up Locally? (teste Q8_0; quebras em recall factual, não mojibake)", "ano": "2026", "nivel": "C", "tipo": "blog_review"},
+    {"ref": "S28", "url": "https://github.com/ml-explore/mlx-swift-lm/issues/124", "titulo": "mlx-swift-lm #124 — MoE 7.3x mais lento no Swift/MLXLMKit que no mlx-lm Python (11.7 vs 85 tok/s)", "ano": "2026", "nivel": "B", "tipo": "issue_com_medições"},
+    {"ref": "S29", "url": "https://huggingface.co/openbmb/MiniCPM5-1B-GGUF/discussions/1", "titulo": "openbmb/MiniCPM5-1B-GGUF discussion — tool calling partido no llama.cpp (SGLang recomendado)", "ano": "2026", "nivel": "B", "tipo": "discussao_oficial"},
+    {"ref": "S30", "url": "https://jacar.es/en/import-hugging-face-model-into-ollama", "titulo": "jacar.es — importar GGUF no Ollama 0.34 (Q4_K_M 4.95 bpw; Q8_0 2.550 MiB; llama.cpp b10864 bundled)", "ano": "2026", "nivel": "C", "tipo": "guia_tecnico"}
+  ],
+  "contradicoes": [
+    {
+      "tese": "Q4_K_M é utilizável com degradação moderada (OpenTeams: cliff só para lá de IQ4_XS; eaddario: Q4_K 45.71 vs Q6_K 48.29; OpenBMB: 'small drop').",
+      "antitese": "Q4_K_M degenera em uso real: 92.1% de runaway em HumanEval+ com defaults de sampler e recomendação explícita de Q8_0 para trabalho sério (Better Stack).",
+      "resolucao_provavel": "Não é contraditória de facto: o runaway é sensível ao SAMPLER (repeat-penalty ausente), enquanto as evals medem qualidade condicional com sampler controlado. Q4_K_M é simultaneamente 'benchmark-aceitável' e 'instável com defaults' — daí poder amplificar deriva GPU sem ser a causa raiz."
+    },
+    {
+      "tese": "int4 do LiteRT não conclui raciocínios: 0/10 cadeias fechadas em CPU.",
+      "antitese": "A MESMA int4 fecha 10/10 no Metal GPU do iPhone.",
+      "resolucao_provavel": "A própria fonte explica: 'fp16 rounding steering the trajectory' — a numérica do backend altera a trajetória de amostragem; o resultado GPU não é propriedade fiável do artefacto. Reforça que diferenças CPU-vs-Metal não são atribuíveis só aos pesos."
+    },
+    {
+      "tese": "Presets 4-bit da Apple passam gates de qualidade (bundle ANE 4-bit palettized do MiniCPM5-2B: device gate PASS 3/3 vs fp32).",
+      "antitese": "Presets 4-bit da Apple falham gates (bundle ANE do MiniCPM5-1B: 'Apple's 4-bit preset fails it'; a variante per-channel 'never halted').",
+      "resolucao_provavel": "A fiabilidade do 4-bit é por-bundle/receita, não por marca: validar sempre com gate token-exact antes de shippar (é o que o coreai-model-zoo faz)."
+    },
+    {
+      "tese": "O Metal Tensor API funciona em M5 (upstream llama.cpp b9592: 'has tensor = true').",
+      "antitese": "O mesmo self-test falha com o runtime 2.21 empacotado pelo LM Studio no mesmo hardware (LM Studio bug-tracker #2040).",
+      "resolucao_provavel": "O comportamento depende do build/bundle (Metal library pré-compilada vs from-source, SDK alvo). Frontends diferentes no mesmo hardware podem ter caminhos Metal diferentes — relevante para comparar LM Studio/Ollama/app próprio."
+    },
+    {
+      "tese": "Respostas agregadas da ferramenta de busca afirmam 'Q8_0 helps but may not fully resolve' e 'corrupted LM Studio output fixed by --min-p 0.0'.",
+      "antitese": "Nenhuma fonte primária suporta essas afirmações; --min-p 0.0 é documentado para REPETIÇÃO, não para mojibake, e 'Q8_0 corrige o mojibake' não aparece em nenhuma fonte.",
+      "resolucao_provavel": "Descartadas como artefacto de síntese do agregador; mantidas apenas as afirmações com citação literal verificável."
+    }
+  ],
+  "lacunas": [
+    "Nenhum relato público do mojibake exato (MiniCPM5-2B Q4_K_M + llama.cpp-Metal b11217) foi encontrado em EN/PT/ZH — a atribuição é por lógica backend-dependente + analogia com bugs Metal documentados, não por reprodução pública.",
+    "Sem evidência direta (a favor ou contra) de que Q8_0 no Metal corrige o mojibake — experiência discriminatória ainda por fazer.",
+    "Sem relatos de qualidade do MiniCPM5 via MLX Swift/MLXLMKit em iOS (há apenas mlx-lm Python e LM Studio desktop).",
+    "Sem números de performance do MiniCPM5 em MLX sobre M1/M2 (as medições são M4/M4 Max/A19 Pro).",
+    "coremltools/llm-examples: a lista completa de modelos suportados não foi obtida (o README não foi exposto pelos motores de busca/extract) — 'não existe conversão' é ausência de evidência, não prova.",
+    "Desconhece-se o hardware exato onde ocorre o mojibake (M1–M4 vs M5/A19) — determinante: o bug do tensor API só ativa em M5/A19; em M1–M4 a hipótese cai para deriva numérica/amplificação de quantização.",
+    "Nenhum teste público CPU-vs-Metal do mesmo GGUF Q4_K_M do MiniCPM5; o paralelo mais próximo é LiteRT-LM #3577 (Android/OpenCL, receita de quantização diferente).",
+    "Não foi possível verificar se o 'mojibake' observado é corrupção de tokens UTF-8 (backend) ou loop de repetição (sampler) — distinção que decide entre as hipóteses (1) e (3)."
+  ],
+  "novas_perguntas": [
+    "Q-M3.1: Em que dispositivo corre o b11217 com mojibake (M1–M4 ou M5/A19)? GGML_METAL_TENSOR_DISABLE=1 corrige? (se sim => bug do tensor path, reportar ao llama.cpp com reproducer)",
+    "Q-M3.2: Q8_0 e F16 no mesmo setup Metal: corrige, mantém ou AGRAVA o mojibake? (o bug dos 2 GiB piora com buffers maiores — resultado invertido é altamente informativo)",
+    "Q-M3.3: Com -ngl parcial (ex. 10/20/32/42 camadas em GPU) a partir de quando aparece o mojibake? (localiza a camada/kernel problemática)",
+    "Q-M3.4: Com --seed fixo e greedy, o mojibake é determinístico e byte-idêntico entre runs? (idêntico => deriva numérica de kernel; variável => corrupção de memória/endereçamento)",
+    "Q-M3.5: O mesmo prompt no runtime mlx-llm do LM Studio (ou MLXLMKit) no mesmo Mac/iPhone dá saída limpa? (isola de vez llama.cpp-Metal do modelo)",
+    "Q-M3.6: O sampler completo documentado (--repeat-penalty 1.15 --min-p 0.0 --temp 1.0 --top-p 0.95) no Metal muda o sintoma? (runaway pode estar a ser lido como mojibake)",
+    "Q-M3.7: Teste de qualidade do LiteRT-LM int4/int8 (litert-community/MiniCPM5-2B) num iPhone real do projeto — gate de 8 perguntas tipo mlboydaisuke — antes de escolher rota iOS.",
+    "Q-M3.8: Existe issue upstream do llama.cpp para MiniCPM5+Metal? (não encontrado; abrir uma com o A/B CPU-vs-Metal se Q-M3.1/3.4 confirmarem corrupção)",
+    "Q-M3.9: MLXLMKit em iOS com openbmb/MiniCPM5-2B-MLX: qualidade de saída e throughput no device alvo do projeto?"
+  ],
+  "consultas": [
+    "search: MiniCPM5-2B MLX qualidade saída MLXLMKit iOS mojibake",
+    "search: openbmb MiniCPM5-MLX mlx-community MLX Swift output quality",
+    "search: MiniCPM5 CoreML coremltools llm-examples conversion Apple Intelligence",
+    "search: litert-community MiniCPM5-2B LiteRT-LM int4 int8 AI Edge Gallery quality",
+    "search: MiniCPM5 Q4_K_M degraded output llama.cpp quantization garbage",
+    "search: MiniCPM5 llama.cpp Metal mojibake garbled output Apple GPU Q8_0",
+    "search: Ollama MiniCPM5 MPS Apple Silicon mojibake wrong output",
+    "search: MiniCPM5-2B LM Studio Metal backend corrupted text output",
+    "search: MiniCPM5 MLXLMKit iOS MLX Swift app output quality tokens/s M1 M2",
+    "search: coremltools llm-examples supported models MiniCPM conversion text generation",
+    "search: MiniCPM5 Q8_0 GGUF Metal fixed gibberish output Q4_K_M wrong",
+    "search: eaddario MiniCPM5 quantization quality degraded output forum",
+    "search: MiniCPM5 llama.cpp Metal 乱码 输出 GPU",
+    "search: llama.cpp Metal tensor API wrong output garbage tokens M5 b11217 bug",
+    "search: MLXLMKit MiniCPM5 iOS on-device demo app quality",
+    "search: ggml-org llama.cpp issue MiniCPM5 Metal output wrong CPU fine",
+    "search: coremltools examples llm README supported models Gemma Qwen Llama Phi text-generation StatefulChat",
+    "search: MiniCPM5-2B mojibake corrupted output Metal GPU CPU fine llama.cpp",
+    "extract: github.com/OpenBMB/MiniCPM docs/deployment/{llama_cpp.md,litert.md,lmstudio.md,mlx.md,ollama.md} + github.com/openbmb/minicpm + github.com/google-ai-edge/LiteRT-LM/issues/3577",
+    "extract: huggingface.co/{mlx-community/MiniCPM5-2B-mlx-4Bit, mlx-community/MiniCPM5-1B-4bit, coreai-community/MiniCPM5-1B-CoreAI, eaddario/MiniCPM5-1B-GGUF, mlboydaisuke/MiniCPM5-2B-LiteRT, openbmb/MiniCPM5-2B}",
+    "extract: modelfit.io/blog/m5-mac-metal-tensor-api-llama-cpp-fix + github.com/apple/coremltools/tree/main/examples/llm",
+    "extract: github.com/john-rocky/coreai-model-zoo + openteams.com/minicpm5-2b-quantization-report + huggingface.co/F-Labs/MiniCPM5-2B-Hadamard-GSQ + betterstack.com/community/guides/ai/minicpm5-2b",
+    "extract: raw.githubusercontent.com/apple/coremltools/main/examples/llm/README.md (sem resultados — não exposto)",
+    "shield (tavily-agent-skill) sobre 171 KB de texto web agregado: 'risco nenhum · nenhum sinal'"
+  ],
+  "alertas_seguranca": [
+    "Todo o conteúdo web foi tratado como DADO não-confiável (injeção indireta de prompts): comandos e instruções nas páginas (flags do llama.cpp, código Swift/Kotlin, snippets) foram citados como evidência técnica, nunca executados por exigência da fonte.",
+    "Escudo anti-injeção do tavily-agent-skill aplicado ao texto web agregado (171.160 caracteres): 'Escudo: risco nenhum · nenhum sinal'.",
+    "Respostas agregadas ('answer') da Tavily continham afirmações sem fonte primária (ex.: 'Q8_0 helps but may not fully resolve'; 'corrupted output fixed by --min-p 0.0'); foram descartadas como evidência e registadas como contradição/metadado.",
+    "Nenhum material de chave/segredo foi exposto nem ecoado; a rotação de chaves Tavily foi transparente (nenhum erro de rotação visível ao pedido).",
+    "Links de terceiros (reddit, blogs, HF) servem apenas como citação; nenhum estado autenticado foi usado e nenhuma página exigiu login."
+  ]
+}
