@@ -476,7 +476,6 @@ class _Worker {
       // restantes (enum llama_flash_attn_type: -1 auto, 0 off, 1 on).
       final cp = b.contextDefaultParams();
       if (Platform.isIOS || Platform.isMacOS) {
-        cp.flashAttnType = 1;
       }
       nCtx = cfg.contextSize;
       cp.nCtx = nCtx;

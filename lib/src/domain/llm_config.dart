@@ -99,7 +99,7 @@ class LlmConfig {
     this.enableThinking = false,
     this.threads = 7,
     this.contextSize = 8192,
-    this.gpuLayers = -1,
+    this.gpuLayers = 0,
     this.cachePrompt = false,
   });
 
@@ -199,7 +199,7 @@ class LlmConfig {
       enableThinking: j['enable_thinking'] as bool? ?? false,
       threads: (j['threads'] as num?)?.toInt() ?? 7,
       contextSize: (j['context_size'] as num?)?.toInt() ?? 8192,
-      gpuLayers: (j['gpu_layers'] as num?)?.toInt() ?? -1,
+      gpuLayers: (j['gpu_layers'] as num?)?.toInt() ?? 0,
       cachePrompt: j['cache_prompt'] as bool? ?? false,
     );
   }

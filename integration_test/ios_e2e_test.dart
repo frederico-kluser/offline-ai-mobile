@@ -119,6 +119,12 @@ void main() {
         events.whereType<GenDelta>().map((e) => e.text).join().trim();
     final end = events.whereType<GenEnd>().single;
     expect(deltas, isNotEmpty, reason: 'o modelo tem de gerar texto');
+    // Detector de texto degenerado (mojibake): o Metal do b11217 corrompe a
+    // geracao do MiniCPM5-2B Q4_K_M e o output "passava" em isNotEmpty.
+    final degenerate = RegExp(r"[一-鿿Ѐ-ӿ぀-ヿ฀-๿]");
+    expect(degenerate.allMatches(deltas).length, 0,
+        reason: "texto degenerado (bloco CJK/Cirilico/Kana) — regressao de qualidade");
+
     expect(end.stopReason, anyOf('eos', 'max_tokens', 'stop_string'));
     expect(end.outputTokens, lessThanOrEqualTo(48),
         reason: 'max_tokens é teto rígido');
@@ -158,6 +164,12 @@ void main() {
     expect(r.stopReason, isNot(StopReason.repetitionDetected));
     expect(r.stopReason, isNot(StopReason.maxSteps));
     expect(r.answer, isNotEmpty);
+    // Detector de texto degenerado (mojibake): o Metal do b11217 corrompe a
+    // geracao do MiniCPM5-2B Q4_K_M e o output "passava" em isNotEmpty.
+    final degenerate = RegExp(r"[一-鿿Ѐ-ӿ぀-ヿ฀-๿]");
+    expect(degenerate.allMatches(r.answer).length, 0,
+        reason: "texto degenerado (bloco CJK/Cirilico/Kana) — regressao de qualidade");
+
     // ignore: avoid_print
     print('TOOLLOOP: stop=${r.stopReason.wire} passos=${r.log.length} '
         'tools=${r.toolResults.map((e) => e.name).toList()} resposta=${r.answer}');

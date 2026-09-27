@@ -29,6 +29,7 @@ flutter_ios_podfile_setup
 
 target 'Runner' do
   pod 'llama_ffi', :path => 'pods/llama_ffi'
+
   use_frameworks!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
