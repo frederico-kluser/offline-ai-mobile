@@ -27,6 +27,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 
@@ -46,6 +47,17 @@ DynamicLibrary _openLibc() {
     } catch (_) {/* tenta o seguinte */}
   }
   return DynamicLibrary.process();
+}
+
+
+/// Abre a biblioteca do llama.cpp conforme a plataforma:
+/// Android = ficheiro partilhado nas jniLibs; iOS/macOS = simbolos estaticos
+/// no binario principal (XCFramework ligado via CocoaPods).
+DynamicLibrary _openLlamaLibrary() {
+  if (Platform.isIOS || Platform.isMacOS) {
+    return DynamicLibrary.process();
+  }
+  return DynamicLibrary.open(LlamaFfiEngine.libName);
 }
 
 final DynamicLibrary _libc = _openLibc();
@@ -430,7 +442,7 @@ class _Worker {
         return;
       }
       _unloadNative(); // nunca ter 2 modelos em memória
-      lib ??= _Llama(DynamicLibrary.open(LlamaFfiEngine.libName));
+      lib ??= _Llama(_openLlamaLibrary());
       final b = lib!;
       b.backendInit();
 

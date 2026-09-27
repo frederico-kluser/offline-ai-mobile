@@ -53,3 +53,8 @@ tools/laya_artifact/
 android/app/src/main/jniLibs/
 *.part
 tools/llama-build/
+
+# Artefacto reproduzivel via tools/llama_build_ios.sh
+ios/Frameworks/
+ios/pods/llama_ffi/llama.xcframework/
+tools/build-ios-*/
