@@ -1,0 +1,514 @@
+{
+  "id": "Q2",
+  "estado": "respondida",
+  "confianca": "alta",
+  "resposta": "Os loops do MiniCPM5-2B em llama.cpp têm causa identificada pelos próprios autores: o default min_p=0.05 filtra tokens com probabilidade <5% do token mais provável e remove justamente os tokens que quebrariam o ciclo; a receita oficial é temperature=1.0, top_p=0.95, min_p=0.0, acrescentando repetition_penalty=1.05 se a repetição persistir [F1][F2]. Em llama.cpp em geral a degeneração é agravada por decodificação greedy/beam (temperature=0), por n_predict=-1 (infinito por omissão), por janelas de penalização curtas (repeat_last_n=64) e por defaults escondidos de backends como o repeat_penalty=1.1 do Ollama, que degrada raciocínio [F3][F5][F8][F10]. A mitigação anti-loop mais robusta para tool calling é o sampler DRY (mult 0.8, base 1.75, allowed_length 2, janela 1024 ou -1=ctx), que suprime loops verbátimos sem os efeitos colaterais do repeat_penalty sobre formatação, listas e saída estruturada [F4][F7]. Determinismo com temperature=0 AUMENTA o risco de loop (o greedy entra em ciclos auto-reforçados); para determinismo reproduzível use temperature=1.0 com seed fixo, ou greedy com DRY ativo, teto de max_tokens e deteção em runtime de n-gramas repetidos e de ciclos de tool calls (hash de (tool,args), aviso após 3 repetições, bloqueio em ping-pong A→B→A→B) [F4][F9][F10][F11][F19].",
+  "afirmacoes": [
+    {
+      "texto": "A equipa OpenBMB atribui os loops do MiniCPM5-2B em llama.cpp ao default min_p=0.05, que filtra tokens com probabilidade inferior a 5% do token mais provável e pode remover tokens necessários para sair do ciclo de repetição.",
+      "fontes": ["F1", "F2"],
+      "citacao_literal": "llama.cpp defaults to `min_p=0.05`, which filters out tokens whose probability is below 5% of the highest-probability token. This may remove tokens that could help the model break out of a repetition loop.",
+      "central": true
+    },
+    {
+      "texto": "A recomendação oficial de amostragem do MiniCPM5-2B é temperature=1.0, top_p=0.95, min_p=0.0 (e não temperature=0 nem min_p=0.05).",
+      "fontes": ["F2"],
+      "citacao_literal": "We recommend using the following sets of sampling parameters for generation: `temperature=1.0, top_p=0.95, min_p=0.0`.",
+      "central": true
+    },
+    {
+      "texto": "Perante saídas repetitivas persistentes, os autores do MiniCPM5-2B recomendam acrescentar repetition_penalty=1.05 à receita base.",
+      "fontes": ["F2"],
+      "citacao_literal": "If you encounter repetitive outputs, try: `temperature=1.0, top_p=0.95, min_p=0.0, repetition_penalty=1.05`.",
+      "central": true
+    },
+    {
+      "texto": "Os defaults oficiais do llama.cpp relevantes para loops são: min_p=0.05, repeat_penalty=1.0 (desligado), repeat_last_n=64, dry_multiplier=0.0 (DRY desligado), dry_penalty_last_n=-1 (= tamanho do contexto), n_predict=-1 (infinito), seed=-1 (aleatória) e ordem de samplers penalties;dry;top_n_sigma;top_k;typ_p;top_p;min_p;xtc;temperature.",
+      "fontes": ["F3"],
+      "citacao_literal": "`--min-p N` | min-p sampling (default: 0.05, 0.0 = disabled)",
+      "central": true
+    },
+    {
+      "texto": "O n_predict/max_tokens por omissão no llama.cpp é -1 (geração infinita até EOS), pelo que uma app anti-loop deve fixar sempre um teto explícito de tokens.",
+      "fontes": ["F3", "F17"],
+      "citacao_literal": "`n_predict`: Set the maximum number of tokens to predict when generating text. Note: May exceed the set limit slightly if the last token is a partial multibyte character. When 0, no tokens will be generated but the prompt is evaluated into the cache. Default: `-1`, where `-1` is infinity.",
+      "central": true
+    },
+    {
+      "texto": "A decodificação greedy (temperature=0) e beam search aumentam o risco de loops de repetição; em produção, a causa raiz identificada é a incapacidade do greedy de escapar a ciclos, agravada por auto-reforço.",
+      "fontes": ["F10", "F8", "F9"],
+      "citacao_literal": "the root cause lies in greedy decoding's inability to escape repetitive loops, exacerbated by self-reinforcement effects.",
+      "central": true
+    },
+    {
+      "texto": "O sampler DRY penaliza um token apenas quando o gerá-lo estenderia um sufixo do contexto que já ocorreu antes, com penalização exponencial no comprimento do match e sequence breakers que impedem matches através de fronteiras estruturais (quebras de linha, aspas).",
+      "fontes": ["F4"],
+      "citacao_literal": "DRY penalizes a candidate token only when generating it would extend the current context suffix into a sequence that has already occurred elsewhere in the context. The penalty grows exponentially with the length of the matching span, and configurable sequence breakers prevent matching across structural boundaries such as newlines and quotation marks.",
+      "central": true
+    },
+    {
+      "texto": "A configuração DRY afiada num sweep de 34.944 gerações foi λ=0.8, β=1.75, L=2, sequence breakers default e range=1024 tokens.",
+      "fontes": ["F4"],
+      "citacao_literal": "DRY | λ=0.8, β=1.75, L=2, default breakers, range = 1024",
+      "central": true
+    },
+    {
+      "texto": "Em avaliação humana, DRY é fortemente preferido para evitar loops (Win 48%, Tie 45%, Lose 7%) mantendo paridade estatística em fluência e formatação, ao passo que o repetition penalty \"partia listas com marcadores\" e falhava nomes de falante.",
+      "fontes": ["F4"],
+      "citacao_literal": "DRY is strongly preferred for loop avoidance (Win 48%, Tie 45%, Lose 7%, p<0.001 via two-sided binomial test), while remaining at statistical parity on fluency and formatting.",
+      "central": true
+    },
+    {
+      "texto": "O operador de repetition penalty multiplicativo (herdado do CTRL, usado no llama.cpp, HF e vLLM) ramifica pelo sinal do logit bruto e é mal definido: re-centrar os logits por uma constante — no-op provável em θ=1 — muda 58–96% dos tokens greedy em θ=1.3, com risco de corromper saída estruturada.",
+      "fontes": ["F7"],
+      "citacao_literal": "the penalty is not well-defined: re-centering a model's logits by a constant is a provable no-op at θ = 1, yet at a routine θ = 1.3 it changes 58–96% of greedy tokens",
+      "central": true
+    },
+    {
+      "texto": "O Ollama aplica um repetition penalty default oculto de 1.1 que degrada severamente geração chain-of-thought; desativá-lo (1.0) recuperou 11.67 pontos percentuais de exatidão no DeepSeek R1 e 1.67 no Llama 3.1.",
+      "fontes": ["F5"],
+      "citacao_literal": "Ollama enforces a hidden default repetition penalty of 1.1, severely degrading chain-of-thought generation. Disabling this penalty (setting to 1.0) increases DeepSeek R1's accuracy by 11.67 percentage points and Llama 3.1's by 1.67",
+      "central": false
+    },
+    {
+      "texto": "O paper do min-p (ICLR 2025) recomenda p_base=0.05–0.1 como faixa usual, e a documentação da Unsloth recomendada pelo paper usa min_p=0.05 para contrariar previsões de tokens raríssimos — evidência CONTRÁRIA à receita min_p=0.0 do MiniCPM5.",
+      "fontes": ["F13", "F14"],
+      "citacao_literal": "It's best to use –Min-p 0.05 to counteract very rare token predictions",
+      "central": false
+    },
+    {
+      "texto": "Outro model card reporta que min_p=0.05 pontuou pelo menos tão bem quanto min_p=0.0 e seguiu instruções de forma mais fiável, recomendando-o para modo thinking — min_p não é universalmente deletério.",
+      "fontes": ["F14"],
+      "citacao_literal": "`min_p=0.05` drops tokens far less likely than the top choice. In our tests it scored at least as well as `min_p=0.0` and followed instructions more reliably, so we recommend it for thinking mode.",
+      "central": false
+    },
+    {
+      "texto": "A deteção de ciclos de tool calls em runtime usa hashing de cada chamada como (tool_name, sorted_args), com limiares de repetição, estagnação de raciocínio por similaridade entre saídas consecutivas e ciclos no grafo de chamadas.",
+      "fontes": ["F11"],
+      "citacao_literal": "This sub-signal hashes each tool call as `(tool_name, sorted_args)` and counts how many times each unique call appears in the trace.",
+      "central": true
+    },
+    {
+      "texto": "Guardas de loop de tool calls em agentes usam SHA-256 de assinaturas de chamadas com janela deslizante, deteção de repetição exata (3× seguidas) e de ping-pong (A→B→A→B), escalando de aviso injetado no contexto para bloqueio da chamada.",
+      "fontes": ["F19"],
+      "citacao_literal": "it uses SHA-256 hashing of tool call signatures to identify repeating patterns — including ping-pong patterns (A→B→A→B) and single-call loops (A→A→A) — then escalates from warnings to hard blocks.",
+      "central": false
+    },
+    {
+      "texto": "Métricas de repetição em texto gerado usam self-repetition de n-gramas (n≥4, tipo SER@4); deteção por match exato (n-gram overlap, suffix trees) falha perante pequenas variações lexicais típicas de saídas de LLM.",
+      "fontes": ["F12", "F4"],
+      "citacao_literal": "Classical exact-match detection approaches include n-gram overlap and suffix trees, but these fail entirely when faced with minor lexical variations.",
+      "central": true
+    },
+    {
+      "texto": "O Mirostat (modo 2, tau 5.0, eta 0.1) é documentado no llama.cpp como controlo ativo de perplexidade que evita boredom traps (repetição excessiva) e confusion traps (incoerência), embora ignore top_k/top_p/typical quando ativo.",
+      "fontes": ["F3", "F18"],
+      "citacao_literal": "mirostat: Enable Mirostat sampling, controlling perplexity during text generation. Default: `0`, where `0` is disabled, `1` is Mirostat, and `2` is Mirostat 2.0.",
+      "central": false
+    }
+  ],
+  "receitas": [
+    {
+      "problema": "Loop de repetição em perguntas simples do MiniCPM5-2B em llama.cpp (o caso reportado: 'learn me rust language')",
+      "mitigacao": "Desativar explicitamente o filtro min_p (default 0.05 do llama.cpp remove tokens de fuga ao ciclo); usar a receita oficial do model card",
+      "valores": "min_p=0.0 (no request ou --min-p 0.0 no llama-server); temperature=1.0; top_p=0.95; max_tokens=256–8192",
+      "fontes": ["F1", "F2"]
+    },
+    {
+      "problema": "Repetição residual mesmo com min_p=0.0",
+      "mitigacao": "Acrescentar penalidade de repetição ligeira (recomendação oficial dos autores), sem exagerar na dose",
+      "valores": "repetition_penalty=1.05; repeat_last_n=64 (ou -1 = ctx); presence_penalty=0.0; frequency_penalty=0.0",
+      "fontes": ["F2", "F3"]
+    },
+    {
+      "problema": "Loops verbátimos longos e ciclos de tool calls em contexto de agente",
+      "mitigacao": "Ativar o sampler DRY (Don't Repeat Yourself) em vez/a par de penalties globais; janela deve cobrir o histórico do turno do agente",
+      "valores": "dry_multiplier=0.8; dry_base=1.75; dry_allowed_length=2; dry_penalty_last_n=-1 (ctx) ou 1024; dry_sequence_breakers=['\\n', ':', '\"', ''] (default)",
+      "fontes": ["F3", "F4"]
+    },
+    {
+      "problema": "repeat_penalty global danifica formatação, raciocínio e saída JSON de tool calls (e é mal definido quando ramifica por sinal de logit)",
+      "mitigacao": "Preferir DRY a repeat_penalty>1.05; manter repeat_penalty=1.0 (desligado) quando DRY está ativo; nunca aplicar 1.1+ global em tool calling",
+      "valores": "repeat_penalty=1.0; dry_multiplier=0.8 (alternativa); se insistir em penalty, limitar a 1.05 e validar JSON por schema",
+      "fontes": ["F4", "F5", "F7"]
+    },
+    {
+      "problema": "Geração sem fim (n_predict=-1 por omissão até EOS; modelo pode nunca emitir EOS)",
+      "mitigacao": "Teto explícito de tokens + stop strings robustas; nunca usar --ignore-eos em produção",
+      "valores": "max_tokens/n_predict=256 (respostas curtas) a 2048 (tool calls), nunca -1; stop=[EOS do template, delimitadores de tool call]; ignore_eos=false",
+      "fontes": ["F2", "F3", "F17"]
+    },
+    {
+      "problema": "Determinismo exigido pela app mas greedy (temperature=0) entra em ciclos auto-reforçados",
+      "mitigacao": "Determinismo por seed fixo com amostragem (recomendado: mantém a receita official temp=1.0) OU greedy com defesas anti-loop ativas; fixar também tamanho de lote/hardware para reprodutibilidade",
+      "valores": "temperature=1.0; seed=42 (fixo, nunca -1); min_p=0.0; top_p=0.95 — alternativa greedy: temperature=0 + dry 0.8/1.75/2 + max_tokens fixo + deteção runtime",
+      "fontes": ["F2", "F4", "F5", "F9", "F10"]
+    },
+    {
+      "problema": "Controlo alternativo de repetição por entropia (boredom/confusion traps)",
+      "mitigacao": "Mirostat 2.0 com entropia alvo; NOTA: ignora top_k/top_p/typical no llama.cpp (só seed, tau, eta + penalties/logit_bias), pelo que desactiva a receita min_p/top_p",
+      "valores": "mirostat=2; mirostat_tau=5.0 (faixa útil 5–8); mirostat_eta=0.1",
+      "fontes": ["F3", "F18"]
+    },
+    {
+      "problema": "Deteção de loop no texto gerado durante a geração",
+      "mitigacao": "Monitorizar self-repetition de n-gramas (n≥4) numa janela deslizante e cortar a geração ao exceder o limiar; match exato é insuficiente para variações lexicais",
+      "valores": "n-gram=4 (métrica SER@4); janela=256–1024 tokens; quebrar ao detetar ≥2–3 ocorrências do mesmo n-grama; complementar com proporção de tokens repetidos",
+      "fontes": ["F4", "F12"]
+    },
+    {
+      "problema": "Ciclos de tool calls (A→A→A seguidas ou ping-pong A→B→A→B)",
+      "mitigacao": "Hash de assinaturas de tool calls com janela deslizante e escalamento aviso→bloqueio (o detalhe de max steps do agente é da Q7)",
+      "valores": "hash (tool_name, sorted_args); repetição exata ≥3 → aviso injetado; ≥5 ou ping-pong 4 passos → bloquear chamada e forçar mudança de estratégia",
+      "fontes": ["F11", "F19"]
+    }
+  ],
+  "fontes": [
+    {
+      "ref": "F1",
+      "url": "https://huggingface.co/openbmb/MiniCPM5-2B/discussions/9",
+      "titulo": "openbmb/MiniCPM5-2B · Stuck at loops in simple questions (com resposta oficial da equipa OpenBMB)",
+      "autores": "Comunidade HF + equipa OpenBMB",
+      "ano": "2026",
+      "veiculo": "Hugging Face Discussions",
+      "tipo": "forum",
+      "nivel": "A",
+      "lida": "integral"
+    },
+    {
+      "ref": "F2",
+      "url": "https://huggingface.co/openbmb/MiniCPM5-2B",
+      "titulo": "openbmb/MiniCPM5-2B — model card (Quickstart, Llama.cpp, sampling parameters)",
+      "autores": "OpenBMB",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F3",
+      "url": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+      "titulo": "llama.cpp — tools/server/README.md (parâmetros de amostragem e defaults)",
+      "autores": "ggml-org / llama.cpp",
+      "ano": "2026",
+      "veiculo": "GitHub (documentação oficial)",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F4",
+      "url": "https://arxiv.org/html/2608.22761v1",
+      "titulo": "Stopping Verbatim Loops at Sampling Time (DRY: Don't Repeat Yourself)",
+      "autores": "P. E. Weidmann (p-e-w)",
+      "ano": "2026",
+      "veiculo": "arXiv:2608.22761",
+      "tipo": "preprint",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F5",
+      "url": "https://arxiv.org/html/2605.19537v2",
+      "titulo": "The Silent Hyperparameter: Quantifying the Impact of Inference Backends on LLM Reproducibility",
+      "autores": "vários",
+      "ano": "2026",
+      "veiculo": "arXiv:2605.19537",
+      "tipo": "preprint",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F6",
+      "url": "https://aclanthology.org/2021.blackboxnlp-1.16.pdf",
+      "titulo": "Relating Neural Text Degeneration to Exposure Bias",
+      "autores": "vários",
+      "ano": "2021",
+      "veiculo": "BlackboxNLP @ EMNLP",
+      "tipo": "artigo-revisto",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F7",
+      "url": "https://arxiv.org/pdf/2607.09791",
+      "titulo": "Gauge dependence and structured-output corruption in sign-branched repetition penalties",
+      "autores": "P. Hollows",
+      "ano": "2026",
+      "veiculo": "arXiv:2607.09791",
+      "tipo": "preprint",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F8",
+      "url": "https://openreview.net/pdf?id=rygGQyrFvH",
+      "titulo": "The Curious Case of Neural Text Degeneration",
+      "autores": "A. Holtzman, J. Buys, L. Du, M. Forbes, Y. Choi",
+      "ano": "2020",
+      "veiculo": "ICLR 2020",
+      "tipo": "artigo-revisto",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F9",
+      "url": "https://aclanthology.org/2023.findings-acl.628.pdf",
+      "titulo": "Local Temperature Beam Search: Avoid Neural Text Degeneration via Probability Calibration",
+      "autores": "vários",
+      "ano": "2023",
+      "veiculo": "Findings of ACL 2023",
+      "tipo": "artigo-revisto",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F10",
+      "url": "https://openreview.net/forum?id=WOTCBgKdpL",
+      "titulo": "Solving LLM Repetition Problem in Production: A Comprehensive Study of Multiple Solutions",
+      "autores": "W. Wang, W. Zou, J. Min",
+      "ano": "2026",
+      "veiculo": "OpenReview (submissão ICML 2026)",
+      "tipo": "preprint",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F11",
+      "url": "https://deepeval.com/docs/metrics-agent-loop-detection",
+      "titulo": "Agent Loop Detection (AgentLoopDetectionMetric)",
+      "autores": "DeepEval / Confident AI",
+      "ano": "2026",
+      "veiculo": "documentação DeepEval",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F12",
+      "url": "https://openreview.net/pdf/c24d56b3bd8a29f19e0d1773c2548d1d41f29d86.pdf",
+      "titulo": "SpecRA: Monitor Degenerative Repetition in LLM Agents",
+      "autores": "vários",
+      "ano": "2026",
+      "veiculo": "OpenReview (submissão ICLR 2026)",
+      "tipo": "preprint",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F13",
+      "url": "https://arxiv.org/html/2407.01082v4",
+      "titulo": "Min-p Sampling for Creative and Coherent LLM Outputs",
+      "autores": "M. N. Nguyen, A. Baker, C. Neo, A. Roush, A. Kirsch, R. Shwartz-Ziv",
+      "ano": "2025",
+      "veiculo": "ICLR 2025 / arXiv:2407.01082",
+      "tipo": "artigo-revisto",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F14",
+      "url": "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf",
+      "titulo": "prism-ml/Ternary-Bonsai-2-27B-gguf (KNOWN_ISSUES.md e model card)",
+      "autores": "prism-ml",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "oficial",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F15",
+      "url": "https://papers.neurips.cc/paper_files/paper/2025/file/294de0fa7149adcb88aa3119c239c63e-Paper-Conference.pdf",
+      "titulo": "Top-H Decoding: Adapting the Creativity and Coherence with Entropy",
+      "autores": "vários",
+      "ano": "2025",
+      "veiculo": "NeurIPS 2025",
+      "tipo": "artigo-revisto",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F16",
+      "url": "https://arxiv.org/html/2403.00553v3",
+      "titulo": "Standardizing the Measurement of Text Diversity (self-repetition, CR)",
+      "autores": "vários",
+      "ano": "2025",
+      "veiculo": "arXiv:2403.00553",
+      "tipo": "preprint",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F17",
+      "url": "https://huggingface.co/spaces/faisalhr1997/Koboldcpp/blob/main/examples/main/README.md",
+      "titulo": "llama.cpp examples/main/README.md (n-predict, --ignore-eos, --repeat-penalty, mirostat)",
+      "autores": "projeto llama.cpp (espelho Koboldcpp)",
+      "ano": "2023",
+      "veiculo": "Hugging Face Spaces (espelho de docs)",
+      "tipo": "documentacao",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F18",
+      "url": "https://huggingface.co/DavidAU/Maximizing-Model-Performance-All-Quants-Types-And-Full-Precision-by-Samplers_Parameters",
+      "titulo": "DavidAU — Samplers & Parameters guide (mirostat, penalties, ranges)",
+      "autores": "DavidAU",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F19",
+      "url": "https://github.com/NousResearch/hermes-agent/issues/481",
+      "titulo": "Feature: Tool-Call Loop Guard — SHA-256 Pattern Detection for Stuck Agent Loops",
+      "autores": "comunidade NousResearch/hermes-agent",
+      "ano": "2026",
+      "veiculo": "GitHub Issues",
+      "tipo": "forum",
+      "nivel": "C",
+      "lida": "trechos"
+    }
+  ],
+  "contradicoes": [
+    {
+      "tema": "min_p=0.0 (anti-loop) vs min_p=0.05 (qualidade/instrução)",
+      "posicoes": [
+        {"fonte": "F1", "diz": "O default min_p=0.05 do llama.cpp provoca loops no MiniCPM5-2B porque filtra os tokens que quebrariam o ciclo; usar min_p=0.0."},
+        {"fonte": "F13", "diz": "O paper original do min-p e a comunidade (Unsloth) recomendam p_base=0.05–0.1 para contrariar previsões de tokens raros e manter coerência."},
+        {"fonte": "F14", "diz": "Num modelo de 27B, min_p=0.05 pontuou pelo menos tão bem quanto 0.0 e seguiu instruções mais fiavelmente."}
+      ],
+      "explicacao_provavel": "populacao"
+    },
+    {
+      "tema": "repetition_penalty: mitigação recomendada vs degradação de qualidade",
+      "posicoes": [
+        {"fonte": "F2", "diz": "Se houver repetição, usar repetition_penalty=1.05 sobre a receita base."},
+        {"fonte": "F5", "diz": "O repetition_penalty=1.1 (default oculto do Ollama) degrada severamente o chain-of-thought (−11.67pp em DeepSeek R1)."},
+        {"fonte": "F7", "diz": "O operador multiplicativo ramifica pelo sinal do logit bruto, é mal definido e pode corromper saída estruturada/JSON."},
+        {"fonte": "F4", "diz": "O repetition penalty perde pontos em MT-Bench e \"partia listas com marcadores\"; o DRY mantém a formatação."}
+      ],
+      "explicacao_provavel": "metodo"
+    },
+    {
+      "tema": "A penalidade de repetição reduz mesmo os loops?",
+      "posicoes": [
+        {"fonte": "F4", "diz": "Na tabela principal, o repetition penalty teve SER@4 macro-avg PIOR que nenhuma intervenção em modelos pequenos (0.089 vs 0.077), mas melhor em Llama-3-70B/GPT-OSS (0.065/0.058 vs 0.088/0.076)."},
+        {"fonte": "F2", "diz": "repetition_penalty=1.05 é recomendado pelos autores do MiniCPM5-2B como reforço anti-repetição."}
+      ],
+      "explicacao_provavel": "populacao"
+    },
+    {
+      "tema": "Janela do DRY (dry_penalty_last_n): default 64 vs -1 (ctx) vs 1024",
+      "posicoes": [
+        {"fonte": "F3", "diz": "No server README: dry_penalty_last_n default -1, onde 0=desligado e -1=tamanho do contexto."},
+        {"fonte": "F4", "diz": "A configuração afiada usou range=1024 tokens."},
+        {"fonte": "F18", "diz": "Guia comunitário afirma que a janela default de 64 é inútil em loops de agente e que 4096 funciona."}
+      ],
+      "explicacao_provavel": "definicao"
+    }
+  ],
+  "lacunas": [
+    "Nenhuma fonte testa explicitamente greedy (temperature=0) no MiniCPM5-2B: o caso reportado usava temp=1.0/top_p=0.95, pelo que o risco de loop em modo determinístico puro no MiniCPM5 não está quantificado.",
+    "Nenhum teste publicado do sampler DRY especificamente no MiniCPM5-2B (a evidência DRY vem de Llama-3-70B, GPT-OSS-120B, Qwen 2.5 1.5B/7B).",
+    "Não há medição do efeito de repetition_penalty=1.05 na integridade JSON das tool calls do MiniCPM5-2B (F7 alerta para corrupção de saída estruturada, mas sem dados neste modelo).",
+    "Efeito da quantização (Q4_K_M etc.) na propensão a loops do MiniCPM5-2B não foi encontrado em fontes.",
+    "O termo 'D-RaCo' solicitado não correspondeu a nenhum método identificável nas fontes encontradas.",
+    "Não foi localizada nenhuma issue no repositório ggml-org/llama.cpp que discuta o default min_p=0.05 como causa geral de loops (a evidência é da equipa OpenBMB)."
+  ],
+  "novas_perguntas": [
+    {
+      "pergunta": "Em testes próprios, o DRY (0.8/1.75/2, janela -1) previne loops do MiniCPM5-2B melhor do que min_p=0.0 sozinho, sem degradar tool calling?",
+      "origem": "aprofundamento",
+      "prioridade": "alta",
+      "porque": "A receita oficial (min_p=0.0) resolve o caso reportado, mas DRY é a defesa mais robusta para loops longos de agente e nunca foi testada neste modelo."
+    },
+    {
+      "pergunta": "Qual é a taxa de loop do MiniCPM5-2B em temperature=0 vs temperature=1.0 com seed fixo?",
+      "origem": "quantificacao",
+      "prioridade": "alta",
+      "porque": "A app exige determinismo e a literatura indica que greedy AUMENTA o risco de loop; é o trade-off central de arquitetura."
+    },
+    {
+      "pergunta": "repetition_penalty=1.05 corrompe argumentos JSON das tool calls do MiniCPM5-2B?",
+      "origem": "contra-evidencia",
+      "prioridade": "alta",
+      "porque": "F2 recomenda 1.05, mas F7 demonstra que o operador é mal definido e pode corromper saída estruturada — decisivo para tool calling."
+    },
+    {
+      "pergunta": "Que tolerância têm os samplers/penalties do llama.cpp a seeds fixas e tamanhos de lote variáveis (reprodutibilidade bit-exata em Android)?",
+      "origem": "lacuna",
+      "prioridade": "media",
+      "porque": "Determinismo prático depende de mais do que seed: kernels não-determinísticos e tie-breaking de argmax quebram reprodutibilidade (F5)."
+    },
+    {
+      "pergunta": "O que é exatamente 'D-RaCo' no contexto de ngram sampling — método publicado ou implementação proprietária?",
+      "origem": "definicao",
+      "prioridade": "baixa",
+      "porque": "O briefing menciona-o e as buscas não o identificaram; pode ser uma técnica relevante não indexada."
+    }
+  ],
+  "fontes_nao_usadas": [
+    {
+      "url": "https://www.tryvex.dev/learn/tool-loop-detection/langchain",
+      "porque_pode_importar": "Descreve deteção de loops por similaridade de argumentos de tool calls (>90%) e stagnation em LangChain, mas é página comercial sem evidência verificável — só útil como confirmação qualitativa de padrões já cobertos por F11/F19."
+    },
+    {
+      "url": "https://inkog.io/glossary/infinite-loop-ai-agent",
+      "porque_pode_importar": "Mapeia causas de loops infinitos em agentes (max_iterations ausente, ciclos em grafos de estado, condições de saída controladas pelo LLM) e refere a categoria OWASP LLM06:2026 Unbounded Consumption; pode enriquecer a Q7."
+    },
+    {
+      "url": "https://arxiv.org/html/2609.15476v1",
+      "porque_pode_importar": "Temperature Fragility and the Conditional Benefits of Truncation Sampling: mostra que a ORDEM dos samplers (truncagem antes/depois da temperatura, default do llama.cpp) muda a exatidão até 4 pontos — relevante se se afastar dos defaults."
+    },
+    {
+      "url": "https://arxiv.org/html/2605.22579",
+      "porque_pode_importar": "Hyperfitting: fine-tuning perto de zero loss reduz loops em greedy; via de mitigação ao nível do modelo, não de sampler, se os defaults se mostrarem insuficientes."
+    }
+  ],
+  "consultas": [
+    "MiniCPM5-2B repetition loop min_p llama.cpp sampling parameters",
+    "llama.cpp min_p default 0.05 repetition degenerate output",
+    "llama.cpp DRY sampler Don't Repeat Yourself repetition p0 github discussion",
+    "llama.cpp repeat_penalty repeat_last_n frequency presence penalty documentation",
+    "The Curious Case of Neural Text Degeneration Holtzman repetitive loops likelihood high probability",
+    "mirostat sampling llama.cpp target entropy repetition control",
+    "min_p sampling Nguyen Let's Sample Step by Step adaptive sampling",
+    "llama.cpp greedy sampling temperature 0 deterministic samplers order --samplers dist",
+    "\"min p\" sampling \"minimum probability\" relative top token teknium OR p0 blog introduction",
+    "llama.cpp github issue model repeats itself infinite loop generation EOS not stopping",
+    "LLM agent infinite loop tool call cycle detection guardrails max iterations repetition detection",
+    "repetition penalty degrades quality reasoning arithmetic hallucination llama.cpp avoid",
+    "MiniCPM5 technical report OpenBMB arxiv 2B model",
+    "llama.cpp ngram penalty sampler penalize repeated ngrams --ngram",
+    "D-RaCo ngram sampling repetition control decoding",
+    "llama.cpp stop strings antiprompt incomplete tool call agent loop max_tokens truncation JSON",
+    "greedy decoding temperature zero more likely repetition loops deterministic beam search degenerate",
+    "Ollama default repeat_penalty 1.1 hidden degrades chain-of-thought backend",
+    "llama.cpp common_sampler default sampler chain order penalties dry top-k top-p min-p xtc dist",
+    "\"min_p\" not needed OR unnecessary OR overrated sampling hurts quality evidence",
+    "detect repetition in generated text runtime n-gram self-extraction rate SER metric loop detector",
+    "llama.cpp n_predict max_tokens stop generation runaway --ignore-eos antiprompt interactive"
+  ],
+  "alertas_seguranca": [
+    {
+      "url": "https://discuss.huggingface.co/t/model-produces-chaotic-repetitive-output-when-top-k-is-higher-how-to-fix-this/170966",
+      "sinais": ["marcador-de-papel (flag do escudo Tavily, risco medio)", "texto com marcações estranhas ('????', '||||') e prosa de estilo instrutivo dirigido a quem gera"],
+      "acao": "usada-so-com-corroboracao"
+    },
+    {
+      "url": "https://huggingface.co/froggeric/Qwen-Fixed-Chat-Templates/blob/main/README.md",
+      "sinais": ["conteúdo com instruções dirigidas a agentes/LLMs (plugins, hooks, 'guide-rails')", "afirmações promocionais não verificáveis"],
+      "acao": "descartada"
+    },
+    {
+      "url": "https://github.com/topics/loop-detection?l=python&o=asc&s=stars",
+      "sinais": ["agregador com descrições marketing de ferramentas de terceiros, sem evidência técnica"],
+      "acao": "descartada"
+    }
+  ]
+}

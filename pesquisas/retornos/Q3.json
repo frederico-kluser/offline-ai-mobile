@@ -1,0 +1,617 @@
+{
+  "id": "Q3",
+  "estado": "respondida",
+  "confianca": "moderada",
+  "resposta": "Existe GGUF oficial: openbmb/MiniCPM5-2B-GGUF (Apache-2.0) com pelo menos F16/Q8_0/Q4_K_M, mais conversores de referência — bartowski/MiniCPM5-2B-GGUF com ~20 quantizações (bf16 5,04 GB; Q8_0 2,68; Q6_K 2,11; Q5_K_M 1,92; Q4_K_M 1,62; Q4_K_S 1,53; IQ4_XS 1,46; Q3_K_M 1,24; Q2_K 1,01 GB) [F3], eaddario (receitas imatrix/bpw com tabela de qualidade) [F4], mradermacher (série i1 com imatrix) [F11] e outros (Abiray, mondk, prithivMLmods) [F19]. Para Android/emulador com 8 GB de RAM a recomendação é Q4_K_M (1,62 GB de download; ~2,3–2,6 GB de RAM total com contexto 8k; Q5_K_M cabe igualmente se o contexto ficar ≤8k e a qualidade for prioridade), porque o verdadeiro limite não são os pesos mas o KV cache: com 42 camadas × 2 KV heads × head_dim 128, cada token custa ~42 KB em f16, logo 131k tokens exige ~5,5 GB só de KV (2,8 GB com KV q8_0) — inviável num telemóvel de 8 GB; use contexto 8k–16k (até ~32k com --cache-type-k/v q8_0) e nunca 131k [F5][F13][F9]. Evite ≤Q3_K: eaddario mede queda para 95,4% (Q3_K) e colapso para 42,6% da perplexidade relativa (Q2_K) [F4]. Alternativas ao GGUF: LiteRT-LM (litert-community/MiniCPM5-2B: int4 1,55 GB / int8 2,60 GB — o formato mais indicado para Android), GPTQ 4-bit oficial (~2,1 GB) e MLX 4-bit (~1,4 GB, Apple) [F10][F12][F16]. Atenção: os builds quantizados com os defaults documentados caíam em loops de repetição (Q4_K_M: 92,1% de runaway em HumanEval+), mas é um problema de sampling (min_p=0.05 do llama.cpp; corrigido com min_p=0/repeat-penalty), não da quantização em si [F6][F2].",
+  "afirmacoes": [
+    {
+      "texto": "Existe repositório GGUF oficial de OpenBMB para o MiniCPM5-2B, com ficheiro F16 referenciado nos comandos oficiais de llama.cpp.",
+      "fontes": ["F2", "F1"],
+      "citacao_literal": "llama-server -m MiniCPM5-2B-F16.gguf -a MiniCPM5-2B --port 8080 -ngl 99 -c 8192 --jinja",
+      "central": true
+    },
+    {
+      "texto": "O model card oficial lista backends GGUF para llama.cpp, Ollama e LM Studio, além de MLX 4-bit e LiteRT-LM.",
+      "fontes": ["F1"],
+      "citacao_literal": "| llama.cpp | GGUF local inference, CPU/GPU | llama\\_cpp.md | minicpm5-deploy-llama-cpp |",
+      "central": true
+    },
+    {
+      "texto": "O repo bartowski/MiniCPM5-2B-GGUF publica Q4_K_M com 1,62 GB e recomenda-o como predefinição.",
+      "fontes": ["F3"],
+      "citacao_literal": "Don't know which to choose? Grab Q4\\_K\\_M (1.62GB) - usually a good mix of size and performance.",
+      "central": true
+    },
+    {
+      "texto": "Na tabela de ficheiros de bartowski, Q4_K_M tem 1,62 GB e é descrito como 'default size for most use cases, recommended'.",
+      "fontes": ["F3"],
+      "citacao_literal": "| MiniCPM5-2B-Q4\\_K\\_M.gguf | Q4\\_K\\_M | 1.62GB | false | Good quality, default size for most use cases, recommended. |",
+      "central": true
+    },
+    {
+      "texto": "Tamanhos de bartowski por quantização: Q5_K_M 1,92 GB, Q4_K_L 1,71 GB, Q4_K_M 1,62 GB, IQ4_NL 1,61 GB, Q4_K_S 1,53 GB, IQ4_XS 1,46 GB.",
+      "fontes": ["F3"],
+      "citacao_literal": "| Q5\\_K\\_M | 1.92GB | 6.10 | 6.10 | 70 % | | Q4\\_K\\_L | 1.71GB | 5.41 | 5.45 | 50 % | | Q4\\_K\\_M | 1.62GB | 5.01 | 5.14 | 70 % | | IQ4\\_NL | 1.61GB | 4.96 | 5.10 | 70 % | | Q4\\_K\\_S | 1.53GB | 4.68 | 4.88 | 90 % | | IQ4\\_XS | 1.46GB | 4.43 | 4.65 | 90 % |",
+      "central": true
+    },
+    {
+      "texto": "Os quants de bartowski exigem llama.cpp na release b10883 ou mais recente.",
+      "fontes": ["F3"],
+      "citacao_literal": "These quants were made with llama.cpp release b10883 - if this model's architecture is newly supported, you'll need that release or newer to run them.",
+      "central": false
+    },
+    {
+      "texto": "MiniCPM5-2B: 2.516.756.480 parâmetros (1.981.982.720 não-embebidos), 42 camadas, GQA 16 cabeças Q / 2 KV, contexto 131.072 tokens.",
+      "fontes": ["F5", "F1"],
+      "citacao_literal": "| Parameters | 2,516,756,480 (non-embedding: 1,981,982,720) | | Layers | 42 | | Attention Heads (GQA) | 16 Q / 2 KV | | Context Length | 131,072 |",
+      "central": true
+    },
+    {
+      "texto": "Em teste real, o GGUF Q8_0 usou ~5,3 GB de memória com KV cache ativo e ~2 GB com o KV cache reduzido/desligado — confirma que o KV cache domina o consumo em contexto longo.",
+      "fontes": ["F9"],
+      "citacao_literal": "The model consumed about 5.3GB of VRAM with KV cache enabled, and the tester noted that figure could drop to roughly 2GB with the cache disabled or reduced",
+      "central": true
+    },
+    {
+      "texto": "Fórmula de estimativa do KV cache: bytes por token = 2 × camadas × KV heads × head_dim × bytes por elemento; para o MiniCPM5-2B (42×2×128×2×2) dá ~42 KB/token em f16, logo ~5,5 GB a 131k tokens.",
+      "fontes": ["F13", "F14"],
+      "citacao_literal": "Quick formula to estimate KV cache per token: `bytes_per_token = 2 × num_layers × num_kv_heads × head_dim × bytes_per_element`",
+      "central": true
+    },
+    {
+      "texto": "A tabela de qualidade de eaddario mostra colapso em Q2_K (ρPPL 42,56% do F16) e degradação moderada em Q4_K (98,63%), portanto abaixo de Q4 a qualidade cai acentuadamente.",
+      "fontes": ["F4"],
+      "citacao_literal": "| MiniCPM5-2B-Q2\\_K | 2.5000 | 0.74 | 407.878826 ±5.845453 | 42.56% | 3.627245 ±0.011952 | 30.646 ±0.122 |",
+      "central": true
+    },
+    {
+      "texto": "O GGUF Q4_K_M com settings documentados teve 92,1% de gerações runaway em HumanEval+ (score 6,1); com repeat-penalty 1.15 subiu para 71,3 e o runaway caiu para 11,0%.",
+      "fontes": ["F6", "F17"],
+      "citacao_literal": "With `--repeat-penalty 1.15` added: HumanEval+ score jumps from 6.1 to 71.3, runaway rate drops from 92.1% to 11.0%. A 14x performance swing from one flag.",
+      "central": true
+    },
+    {
+      "texto": "A OpenBMB atribui os loops de repetição ao default min_p=0.05 do llama.cpp, e não à quantização dos pesos.",
+      "fontes": ["F2", "F7"],
+      "citacao_literal": "In llama.cpp, the default `min_p=0.05` can lead to repetitive output: it filters out tokens whose probability is below 5% of the highest-probability token",
+      "central": true
+    },
+    {
+      "texto": "Os bundles LiteRT-LM para Android existem em int4 (1,55 GB) e int8 (2,60 GB) e são alojados em litert-community/MiniCPM5-2B.",
+      "fontes": ["F18b", "F10"],
+      "citacao_literal": "| `MiniCPM5-2B_int4.litertlm` | int4 blockwise-32 + OCTAV on linears, int8 embedding | 1.55 GB |",
+      "central": true
+    },
+    {
+      "texto": "A variante GPTQ oficial (openbmb/MiniCPM5-2B-GPTQ) é 4-bit, ~2,1 GB, e o modelo mantém janela de 131.072 tokens e licença apache-2.0.",
+      "fontes": ["F12"],
+      "citacao_literal": "Features: 2b LLM, VRAM: 2.1GB, Context: 128K, License: apache-2.0, Quantized, LLM Explorer Score: 0.29.",
+      "central": false
+    },
+    {
+      "texto": "Licença do MiniCPM5-2B: Apache-2.0, com libertação em 7 de setembro de 2026.",
+      "fontes": ["F21", "F12"],
+      "citacao_literal": "Released\n:   7 Sep 2026\n\nContext\n:   131,072 tokens\n\nParameters\n:   2,516,756,480 total · 1,981,982,720 non-embedding\n\nLicense\n:   Apache-2.0",
+      "central": false
+    }
+  ],
+  "modelos": [
+    {
+      "repo": "https://huggingface.co/openbmb/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q4_K_M.gguf",
+      "tamanho_gb": 1.6,
+      "quantizacao": "Q4_K_M",
+      "notas": "REPO OFICIAL. Tamanho estimado por analogia com bartowski (1,62 GB); a lista de ficheiros do repo não é exposta em texto (página renderizada por JS). RAM estimada em Android: ~2,3 GB com contexto 8k, ~3,7 GB com 32k (KV q8_0), ~7,2 GB com 131k (inviável em 8 GB).",
+      "fontes": ["F2", "F8", "F3"]
+    },
+    {
+      "repo": "https://huggingface.co/openbmb/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q8_0.gguf",
+      "tamanho_gb": 2.7,
+      "quantizacao": "Q8_0",
+      "notas": "REPO OFICIAL; confirmado por comando de download em guias de terceiros. Teste real (mindstudio): ~5,3 GB de VRAM com KV cache ativo (contexto longo), ~2 GB sem KV cache.",
+      "fontes": ["F6", "F9", "F2"]
+    },
+    {
+      "repo": "https://huggingface.co/openbmb/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-F16.gguf",
+      "tamanho_gb": 5.0,
+      "quantizacao": "F16",
+      "notas": "REPO OFICIAL; referenciado no comando oficial llama-server. Tamanho estimado (bartowski bf16 = 5,04 GB; eaddario F16 = 4,69 GiB). Não recomendado para Android.",
+      "fontes": ["F2", "F3", "F4"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q4_K_M.gguf",
+      "tamanho_gb": 1.62,
+      "quantizacao": "Q4_K_M",
+      "notas": "RECOMENDADO como predefinição pelo próprio autor. Download: `hf download bartowski/MiniCPM5-2B-GGUF --include \"MiniCPM5-2B-Q4_K_M.gguf\" --local-dir ./` ou `llama-server -hf bartowski/MiniCPM5-2B-GGUF:Q4_K_M`. Requer llama.cpp ≥ b10883. Inclui layouts otimizados (0,94× da divergência KL do layout standard). RAM estimada: ~2,3 GB (8k ctx) / ~3,7 GB (32k, KV q8_0).",
+      "fontes": ["F3"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q5_K_M.gguf",
+      "tamanho_gb": 1.92,
+      "quantizacao": "Q5_K_M",
+      "notas": "Alta qualidade ('recommended'); em 8 GB de RAM cabe com folga a contexto curto/médio (~2,6 GB a 8k). Boa opção se a qualidade de saída for prioridade sobre o tamanho do download. Qualidade relativa (eaddario Q5_K): ρPPL 99,55%.",
+      "fontes": ["F3", "F4"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q4_K_S.gguf",
+      "tamanho_gb": 1.53,
+      "quantizacao": "Q4_K_S",
+      "notas": "Pouca poupança face ao Q4_K_M (−0,09 GB) com perda de qualidade ligeira; só se o armazenamento for crítico. Alternativa preferível: Q4_K_M.",
+      "fontes": ["F3"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-IQ4_XS.gguf",
+      "tamanho_gb": 1.46,
+      "quantizacao": "IQ4_XS",
+      "notas": "Menor variante 4-bit recomendável (4,43 bpw). Existe também repo dedicado mondk/MiniCPM5-2B-IQ4_XS-GGUF (tamanho não confirmado). Compromisso qualidade/tamanho ligeiramente pior que Q4_K_M; usável se o download tiver de ser mínimo.",
+      "fontes": ["F3", "F19"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q6_K.gguf",
+      "tamanho_gb": 2.11,
+      "quantizacao": "Q6_K",
+      "notas": "Qualidade quase sem perdas ('near perfect, recommended') — opção de referência quando há memória (ex.: emulador/PC com 8 GB dedicados).",
+      "fontes": ["F3"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q8_0.gguf",
+      "tamanho_gb": 2.68,
+      "quantizacao": "Q8_0",
+      "notas": "Qualidade máxima quantizada. Em contexto longo o KV cache empurra o consumo total para >5 GB (medido), por isso reservar para contextos médios em Android.",
+      "fontes": ["F3", "F9"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q3_K_M.gguf",
+      "tamanho_gb": 1.24,
+      "quantizacao": "Q3_K_M",
+      "notas": "Limite inferior sensato (ρPPL 95,4% na série Q3_K segundo eaddario). Só para downloads mínimos; degradação já mensurável.",
+      "fontes": ["F3", "F4"]
+    },
+    {
+      "repo": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q2_K.gguf",
+      "tamanho_gb": 1.01,
+      "quantizacao": "Q2_K",
+      "notas": "EVITAR: eaddario mede colapso de qualidade (ρPPL 42,56% do F16; μKLD 3,63). Incluído só para referência do tamanho mínimo.",
+      "fontes": ["F3", "F4"]
+    },
+    {
+      "repo": "https://huggingface.co/eaddario/MiniCPM5-2B-GGUF",
+      "ficheiro": "MiniCPM5-2B-Q4_K.gguf",
+      "tamanho_gb": 1.32,
+      "quantizacao": "Q4_K (bpw 4.5, imatrix)",
+      "notas": "EXPERIMENTAL: receitas automáticas por tensor com llama-imatrix/llama-quantize modificados (PRs #14891/#15550 do llama.cpp, por fundir). Menor que o Q4_K_M standard (1,32 GiB vs 1,62 GB) por contagem bpw diferente. Traz a melhor tabela de qualidade/quantização disponível (μPPL/ρPPL/μKLD).",
+      "fontes": ["F4"]
+    },
+    {
+      "repo": "https://huggingface.co/mradermacher/MiniCPM5-2B-i1-GGUF",
+      "ficheiro": "i1-IQ1_S / i1-IQ1_M (0,8 GB cada)",
+      "tamanho_gb": 0.8,
+      "quantizacao": "i1-IQ1_S (imatrix)",
+      "notas": "Série i1 (importance matrix); inclui ficheiro imatrix 0,1 GB para quantificações próprias. O autor marca IQ1_S como 'for the desperate' — não usar em produção. Existe também mradermacher/MiniCPM5-2B-GGUF (não-imatrix).",
+      "fontes": ["F11", "F19"]
+    },
+    {
+      "repo": "https://huggingface.co/litert-community/MiniCPM5-2B",
+      "ficheiro": "MiniCPM5-2B_int4.litertlm",
+      "tamanho_gb": 1.55,
+      "quantizacao": "int4 blockwise-32 + OCTAV (embedding int8)",
+      "notas": "FORMATO MAIS INDICADO PARA ANDROID (runtime LiteRT-LM da Google, API Kotlin, AI Edge Gallery). Testado em Galaxy S26; corre em CPU e GPU (OpenCL). URL de download = resolve do repo litert-community/MiniCPM5-2B.",
+      "fontes": ["F18b", "F10"]
+    },
+    {
+      "repo": "https://huggingface.co/litert-community/MiniCPM5-2B",
+      "ficheiro": "MiniCPM5-2B_int8.litertlm",
+      "tamanho_gb": 2.6,
+      "quantizacao": "int8 dynamic (fp32 activations)",
+      "notas": "Bundle LiteRT de maior fidelidade; ~30 tok/s de decode em CPU de telemóvel (medição da comunidade). Para quando o reasoning tiver de terminar de forma fiável.",
+      "fontes": ["F18b", "F10"]
+    },
+    {
+      "repo": "https://huggingface.co/openbmb/MiniCPM5-2B-GPTQ",
+      "ficheiro": "safetensors GPTQ 4-bit",
+      "tamanho_gb": 2.1,
+      "quantizacao": "GPTQ 4-bit",
+      "notas": "Oficial; para stacks GPU com kernels GPTQ — não é caminho para CPU Android. Licença apache-2.0, contexto 131k.",
+      "fontes": ["F12", "F8"]
+    },
+    {
+      "repo": "https://huggingface.co/mlx-community/MiniCPM5-2B-mlx-4Bit",
+      "ficheiro": "pesos MLX 4-bit (safetensors)",
+      "tamanho_gb": 1.4,
+      "quantizacao": "MLX 4-bit",
+      "notas": "Apple Silicon apenas (irrelevante para Android, incluído por completude do ponto (d)). Existe também openbmb/MiniCPM5-2B-MLX (oficial) e mlx-community/MiniCPM5-2B-OptiQ-4bit (1,9 GB).",
+      "fontes": ["F16", "F19", "F8"]
+    }
+  ],
+  "fontes": [
+    {
+      "ref": "F1",
+      "url": "https://huggingface.co/openbmb/MiniCPM5-2B",
+      "titulo": "openbmb/MiniCPM5-2B (model card oficial)",
+      "autores": "OpenBMB (Tsinghua/ModelBest)",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F2",
+      "url": "https://huggingface.co/openbmb/MiniCPM5-2B-GGUF",
+      "titulo": "openbmb/MiniCPM5-2B-GGUF (repo GGUF oficial)",
+      "autores": "OpenBMB",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F3",
+      "url": "https://huggingface.co/bartowski/MiniCPM5-2B-GGUF",
+      "titulo": "bartowski/MiniCPM5-2B-GGUF (tabela de quantizações e tamanhos)",
+      "autores": "Charles Goddard (bartowski)",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F4",
+      "url": "https://huggingface.co/eaddario/MiniCPM5-2B-GGUF",
+      "titulo": "eaddario/MiniCPM5-2B-GGUF (quants experimentais imatrix/bpw + tabela de qualidade)",
+      "autores": "eaddario",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F5",
+      "url": "https://github.com/openbmb/minicpm",
+      "titulo": "OpenBMB/MiniCPM — MiniCPM5: SOTA on-device LLMs (README)",
+      "autores": "OpenBMB",
+      "ano": "2026",
+      "veiculo": "GitHub",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F6",
+      "url": "https://betterstack.com/community/guides/ai/minicpm5-2b",
+      "titulo": "MiniCPM5-2B: A 2.5B Model That Beats Larger Models (guia; bug de repetição e workaround)",
+      "autores": "Better Stack Community",
+      "ano": "2026",
+      "veiculo": "betterstack.com",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F7",
+      "url": "https://huggingface.co/openbmb/MiniCPM5-2B/discussions/13",
+      "titulo": "Discussão HF: MiniCPM5-2B 无限循环 (loops infinitos) — resposta da OpenBMB",
+      "autores": "comunidade HF + OpenBMB",
+      "ano": "2026",
+      "veiculo": "Hugging Face (discussions)",
+      "tipo": "forum",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F8",
+      "url": "https://www.mindstudio.ai/blog/minicpm5-2b-on-device-model",
+      "titulo": "MiniCPM5-2B: A 2B Open Model That Beats 4B Rivals (formatos de runtime)",
+      "autores": "MindStudio",
+      "ano": "2026",
+      "veiculo": "mindstudio.ai",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F9",
+      "url": "https://www.mindstudio.ai/blog/minicpm5-2b-gguf-local-test",
+      "titulo": "MiniCPM5-2B GGUF: How Does It Hold Up Locally? (medição Q8_0 ~5,3 GB VRAM com KV cache)",
+      "autores": "MindStudio",
+      "ano": "2026",
+      "veiculo": "mindstudio.ai",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F10",
+      "url": "https://github.com/OpenBMB/MiniCPM/blob/main/docs/deployment/litert.md",
+      "titulo": "Deploy MiniCPM5-2B/1B with LiteRT-LM (Android/iOS/desktop/IoT) — docs OpenBMB",
+      "autores": "OpenBMB",
+      "ano": "2026",
+      "veiculo": "GitHub",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F11",
+      "url": "https://huggingface.co/mradermacher/MiniCPM5-2B-i1-GGUF",
+      "titulo": "mradermacher/MiniCPM5-2B-i1-GGUF (quants com importance matrix)",
+      "autores": "mradermacher",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F12",
+      "url": "https://llm-explorer.com/model/openbmb%2FMiniCPM5-2B-GPTQ,7s7kOlAaLbbkCon2ABxGGt",
+      "titulo": "LLM Explorer: MiniCPM5 2B GPTQ by openbmb (VRAM 2.1GB, 128K, apache-2.0)",
+      "autores": "LLM Explorer",
+      "ano": "2026",
+      "veiculo": "llm-explorer.com",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F13",
+      "url": "https://www.buildmvpfast.com/blog/kv-cache-optimization-memory-management-long-context-llm-agents-2026",
+      "titulo": "KV Cache Optimization: Memory Management for Long-Context LLM Agents (fórmula/tabela por token)",
+      "autores": "BuildMVPFast",
+      "ano": "2026",
+      "veiculo": "buildmvpfast.com",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F14",
+      "url": "https://medium.com/@tejaswi_kashyap/memory-optimization-in-llms-leveraging-kv-cache-quantization-for-efficient-inference-94bc3df5faef",
+      "titulo": "Memory Optimization in LLMs: Leveraging KV Cache Quantization (cálculo Llama-3 8B: 131 072 B/token)",
+      "autores": "Tejaswi Kashyap",
+      "ano": "2024",
+      "veiculo": "Medium",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F15",
+      "url": "https://localclaw.io/models/minicpm5-2b",
+      "titulo": "LocalClaw catalogue: MiniCPM5 2B local AI (RAM mínima 4 GB, Q4_K_M 1,6 GB)",
+      "autores": "LocalClaw",
+      "ano": "2026",
+      "veiculo": "localclaw.io",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F16",
+      "url": "https://huggingface.co/mlx-community/MiniCPM5-2B-OptiQ-4bit",
+      "titulo": "mlx-community/MiniCPM5-2B-OptiQ-4bit (MLX 4-bit, hybrid reasoning)",
+      "autores": "MLX Community",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F17",
+      "url": "https://www.youtube.com/watch?v=Wik_JQ-enUA",
+      "titulo": "This Tiny Coding Model Shouldn't Be This Good (MiniCPM5) — vídeo/transcrição (dados do issue de repetição)",
+      "autores": "Better Stack (YouTube)",
+      "ano": "2026",
+      "veiculo": "YouTube",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F18b",
+      "url": "https://huggingface.co/mlboydaisuke/MiniCPM5-2B-LiteRT",
+      "titulo": "mlboydaisuke/MiniCPM5-2B-LiteRT (tabela int4 1,55 GB / int8 2,60 GB + benchmarks Galaxy S26)",
+      "autores": "mlboydaisuke",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F19",
+      "url": "https://huggingface.co/models?dataset=dataset%3Aopenbmb%2FUltraData-RL-2609",
+      "titulo": "Listagem HF de modelos MiniCPM5-2B (inventário de repos: GPTQ, MLX, GGUF, mradermacher, mondk, Abiray, prithivMLmods, UraionLabs)",
+      "autores": "Hugging Face",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F20",
+      "url": "https://huggingface.co/docs/hub/ollama",
+      "titulo": "Use Ollama with any GGUF Model on Hugging Face Hub (docs)",
+      "autores": "Hugging Face",
+      "ano": "2026",
+      "veiculo": "Hugging Face Docs",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F21",
+      "url": "https://ai-tldr.dev/models/minicpm5-2b",
+      "titulo": "AI/TLDR: MiniCPM5-2B (ficha: 2 516 756 480 params, 131 072 ctx, Apache-2.0)",
+      "autores": "ai-tldr.dev",
+      "ano": "2026",
+      "veiculo": "ai-tldr.dev",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F18",
+      "url": "https://ollama.com/openbmb/minicpm5",
+      "titulo": "Ollama library openbmb/minicpm5 (tags q4_K_M 688 MB / q8_0 1,2 GB / fp16 2,2 GB = modelo 1B)",
+      "autores": "Ollama / OpenBMB",
+      "ano": "2026",
+      "veiculo": "ollama.com",
+      "tipo": "oficial",
+      "nivel": "B",
+      "lida": "trechos"
+    }
+  ],
+  "contradicoes": [
+    {
+      "tema": "Tamanho do ficheiro Q4 entre conversores",
+      "posicoes": [
+        {"fonte": "F3", "diz": "bartowski: MiniCPM5-2B-Q4_K_M.gguf = 1,62 GB (5,14 file bits/weight)"},
+        {"fonte": "F4", "diz": "eaddario: MiniCPM5-2B-Q4_K = 1,32 GiB (4,5 bpw)"},
+        {"fonte": "F9", "diz": "mindstudio: 'A Q4 model file can be only around 1.56 GB'"},
+        {"fonte": "F15", "diz": "LocalClaw: 'Model size 1.6 GB' para Q4_K_M"}
+      ],
+      "explicacao_provavel": "definicao"
+    },
+    {
+      "tema": "Fiabilidade do GGUF Q4_K_M (92% de runaway vs 'recommended')",
+      "posicoes": [
+        {"fonte": "F6", "diz": "Q4_K_M com settings documentados: HumanEval+ 6,1 e 92,1% de gerações runaway; com repeat-penalty 1.15: 71,3 e 11,0%"},
+        {"fonte": "F3", "diz": "bartowski descreve Q4_K_M como 'Good quality, default size for most use cases, recommended'"},
+        {"fonte": "F2", "diz": "OpenBMB: a causa é o default min_p=0.05 do llama.cpp, que filtra tokens necessários para sair de loops"}
+      ],
+      "explicacao_provavel": "metodo"
+    },
+    {
+      "tema": "Custo de memória do KV cache por token em contexto longo",
+      "posicoes": [
+        {"fonte": "F13", "diz": "bytes/token = 2 × layers × kv_heads × head_dim × bytes; Llama-3 8B: ~131 KB/token → 16,8 GB a 128K"},
+        {"fonte": "F14", "diz": "Llama 3 8B: 'The KV cache for one token occupies 131,072 bytes' (corrobora a fórmula)"},
+        {"fonte": "F13", "diz": "outra fonte do mesmo corpus (contracollective, citada em F13 do mesmo tema) afirma '8 KB per token... 128K context is 1 GB' para Llama 3.3 8B — incompatível com a fórmula"}
+      ],
+      "explicacao_provavel": "erro-de-citacao"
+    },
+    {
+      "tema": "Disponibilidade de MiniCPM5-2B em Ollama",
+      "posicoes": [
+        {"fonte": "F18", "diz": "A library ollama.com/openbmb/minicpm5 tem tags q4_K_M (688 MB), q8_0 (1,2 GB), fp16 (2,2 GB) — tamanhos do MiniCPM5-1B, atualizada antes do 2B"},
+        {"fonte": "F15", "diz": "LocalClaw diz 'Ollama: Not available for this model' para o MiniCPM5 2B"},
+        {"fonte": "F20", "diz": "Docs HF: qualquer GGUF corre via `ollama run hf.co/<repo>` (default Q4_K_M) sem criar Modelfile"}
+      ],
+      "explicacao_provavel": "definicao"
+    }
+  ],
+  "lacunas": [
+    "Lista completa e tamanhos exatos dos ficheiros do repo oficial openbmb/MiniCPM5-2B-GGUF (a página /tree é renderizada por JS e o extrator só devolveu o README; só F16/Q8_0/Q4_K_M estão confirmados por citações)",
+    "Não foi confirmado se o repo oficial publica Q5_K_M/IQ4_XS/Q6_K ou apenas F16/Q8_0/Q4_K_M",
+    "Consumo real medido de RAM num Android de 8 GB (as medições disponíveis são desktop/GPU: Q8_0 ~5,3 GB VRAM com KV cache)",
+    "Latência/throughput em CPU ARM de telemóvel para contextos ≥32k (só há medições LiteRT em Galaxy S26 e llama.cpp em Apple MTL)",
+    "Impacto na qualidade de long-contexto da quantização do KV cache (q8_0/q4_0) neste modelo com apenas 2 KV heads",
+    "Verificação explícita da licença nos repos derivados (bartowski, mradermacher, eaddario) — presume-se herança do Apache-2.0 do modelo base",
+    "Tamanho exato dos ficheiros em mondk/MiniCPM5-2B-IQ4_XS-GGUF, Abiray/MiniCPM5-2B-GGUF e prithivMLmods/MiniCPM5-2B-GGUF"
+  ],
+  "novas_perguntas": [
+    {
+      "pergunta": "Qual o consumo medido de RAM e a latência do MiniCPM5-2B Q4_K_M no llama.cpp Android (Termux/JNI) com contexto 8k vs 32k?",
+      "origem": "quantificacao",
+      "prioridade": "alta",
+      "porque": "Dimensiona os botões de download e valida o orçamento de 8 GB com números reais em vez de estimativas derivadas da fórmula de KV cache."
+    },
+    {
+      "pergunta": "O repo oficial openbmb/MiniCPM5-2B-GGUF contém Q5_K_M/IQ4_XS ou só F16/Q8_0/Q4_K_M?",
+      "origem": "lacuna",
+      "prioridade": "media",
+      "porque": "Decide se a app aponta para o repo oficial ou para o bartowski (que tem a gama completa e tamanhos publicados)."
+    },
+    {
+      "pergunta": "Qual o impacto da quantização do KV cache (q8_0/q4_0) na qualidade de long-contexto (AA-LCR/NoLiMa) do MiniCPM5-2B?",
+      "origem": "lacuna",
+      "prioridade": "media",
+      "porque": "Se o KV q8_0 for indistinguível do f16, o contexto útil em Android sobe de ~16k para ~32k+ sem custo de qualidade."
+    },
+    {
+      "pergunta": "Para o botão de download Android, compensa oferecer o bundle LiteRT-LM int4 (1,55 GB) em vez/ao lado do GGUF Q4_K_M (1,62 GB)?",
+      "origem": "perspetiva",
+      "prioridade": "alta",
+      "porque": "O LiteRT tem API Kotlin oficial e medições em Galaxy S26; pode dar melhor experiência mobile, mas limita o runtime a LiteRT-LM."
+    },
+    {
+      "pergunta": "Os números do issue de repetição (92,1% runaway em Q4_K_M) foram reproduzidos por terceiros independentes além do Better Stack/vídeo?",
+      "origem": "contra-evidencia",
+      "prioridade": "media",
+      "porque": "É a principal ressalva de qualidade dos builds quantizados; se for amplamente reproduzida, a app deve impor os parâmetros corretos por predefinição."
+    }
+  ],
+  "fontes_nao_usadas": [
+    {
+      "url": "https://contracollective.com/blog/kv-cache-context-length-apple-silicon-local-inference-2026",
+      "porque_pode_importar": "Recomendações práticas de KV cache em llama.cpp (--cache-type-k/v q8_0, pre-alocação de n_ctx) relevantes para o dimensionamento de contexto; contudo tem erro aritmético na tabela por token, pelo que só foi usada como contradição."
+    },
+    {
+      "url": "https://huggingface.co/docs/hub/en/lmstudio",
+      "porque_pode_importar": "Fluxo de download via LM Studio (in-app downloader, lms get <repo>@Q4_K_M) para os botões de download da app; fora do âmbito estrito de variantes/tamanhos."
+    },
+    {
+      "url": "https://kaitchup.substack.com/p/choosing-a-gguf-model-k-quants-i",
+      "porque_pode_importar": "Enquadramento qualitativo K-quants vs I-quants (Q4_K_M como default, Q5_K_M quase sem degradação) que apoia a recomendação, mas sem dados específicos do MiniCPM5-2B."
+    },
+    {
+      "url": "https://huggingface.co/spaces/osolmaz/leaderboard",
+      "porque_pode_importar": "Leaderboard aberto que lista os repos MiniCPM5-2B; poderia confirmar popularidade/downloads por quantização."
+    },
+    {
+      "url": "https://unsloth.ai/docs/basics/inference-and-deployment/lm-studio",
+      "porque_pode_importar": "Documentação de como publicar/consumir GGUF no LM Studio — útil para a pipeline de download da app (Q4)."
+    }
+  ],
+  "consultas": [
+    "search: MiniCPM5-2B GGUF huggingface",
+    "search: OpenBMB MiniCPM 5 2B model release",
+    "extract: https://huggingface.co/openbmb/MiniCPM5-2B-GGUF/tree/main (query: gguf files sizes)",
+    "extract: https://huggingface.co/bartowski/MiniCPM5-2B-GGUF/tree/main (query: file sizes quantizations)",
+    "extract: https://huggingface.co/bartowski/MiniCPM5-2B-GGUF (query: file sizes table quantization list)",
+    "extract: https://huggingface.co/eaddario/MiniCPM5-2B-GGUF (query: sizes GiB table benchmarks)",
+    "extract: https://huggingface.co/openbmb/MiniCPM5-2B-GGUF (query: available quantization files sizes)",
+    "extract: https://huggingface.co/openbmb/MiniCPM5-2B (query: license GGUF MLX GPTQ LiteRT context)",
+    "search: MiniCPM5-2B GGUF LM Studio ggml-org unsloth community quantized",
+    "search: MiniCPM5-2B MLX 4-bit GPTQ LiteRT litertlm Android download",
+    "search: MiniCPM5-2B quantization degradation quality issues Q4_K IQ4",
+    "extract: https://huggingface.co/openbmb/MiniCPM5-2B-GGUF (query: Q4_K_M Q8_0 F16 file list)",
+    "search: MiniCPM5-2B GPTQ huggingface openbmb 4-bit",
+    "search: MiniCPM5-2B MLX mlx-community 4bit huggingface",
+    "search: llama.cpp KV cache memory context 131072 tokens RAM usage GQA small model",
+    "search: mradermacher MiniCPM5-2B-i1-GGUF imatrix quantization sizes",
+    "search: MiniCPM5-2B LM Studio discover.gguf lmstudio download",
+    "search: openbmb MiniCPM5-2B-GPTQ repo files int4 size",
+    "search: MiniCPM5-2B GGUF repetition loop human eval issue github llama.cpp",
+    "search: \"MiniCPM5-2B-Q4_K_M.gguf\" openbmb download size",
+    "search: MiniCPM5-2B convert_hf_to_gguf llama.cpp quantize custom conversion imatrix"
+  ],
+  "alertas_seguranca": [
+    {
+      "url": "https://localclaw.io/models/minicpm5-2b",
+      "sinais": ["página de catálogo editorial com CTAs promocionais para app própria (LocalClaw)", "aviso próprio de que as afirmações comparativas devem ser verificadas no material a montante"],
+      "acao": "usada-so-com-corroboracao"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Wik_JQ-enUA",
+      "sinais": ["transcrição automática de vídeo com números atribuídos a um issue do GitHub sem ligação direta", "linguagem sensacionalista"],
+      "acao": "usada-so-com-corroboracao"
+    }
+  ]
+}

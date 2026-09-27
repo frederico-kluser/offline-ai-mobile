@@ -1,0 +1,794 @@
+{
+  "id": "Q5",
+  "estado": "parcial",
+  "confianca": "moderada",
+  "resposta": "1) A issue microsoft/onnxruntime#23004 está ABERTA — aberta a 4/Dez/2024 por DakeQQ, atribuída a fajin-corp, reportada em ORT 1.20.1 com MatMulNBits int4/uint4 ≥10× mais lento que int8 dinâmico em Linux/Windows Intel, Android Qualcomm Arm64-v8.6 e Mac M3 (LLM 0.5B–3B) — e não foi recuperável nenhum workaround oficial no tracker, embora as releases 1.24+ tragam melhorias incrementais aos kernels MatMulNBits [F1][F27][F26]. 2) O artefacto do Laya (model_q4.onnx, 428 MB, opset 18 via dynamo+dynamic_shapes, 5 inputs → logits+act_logits; fp32/int8 excluídos porque quantize_dynamic falha) corre com o AAR full onnxruntime-android — 'support for all types and operators', contrib MatMulNBits embutido por predefinição, ORT ≥1.18 — e não com o onnxruntime-mobile (reduzido, exige conversão ORT format; confirmação de ops via ficheiro required_operators + --include_ops_by_config) [F11][F18][F19][F20][F25]. 3) Em Android deve usar-se o CPU EP (recomendação oficial para modelos quantizados), com XNNPACK apenas para o sub-grafo fp32 (o EP XNNPACK não implementa MatMulNBits) e evitando NNAPI/QNN — o nnapi-reference fallback é mais lento que os kernels ORT e o QNN rejeita dynamic shapes [F2][F3][F4][F5][F6][F24]. 4) Em Flutter, onnxruntime_v2 (fork do gtbluesky/onnxruntime_flutter, dart:ffi, empacota ORT 1.23.2, 16KB pages) oferece OrtEnv.instance.init() → OrtSessionOptions(appendCPUProvider(CPUFlags.useArena)) → OrtSession.fromBuffer → OrtValueTensor.createTensorWithDataList (int64 para input_ids/marker_pos/qtype) → runAsync [F7][F8][F9][F20]. 5) A tokenização WordPiece tem opções Dart puras (dart_wordpiece, bert_tokenizer, dart_bert_tokenizer) e nativa via Rust/FFI (hf_tokenizers, byte-exact a partir de tokenizer.json), nenhuma com medições de custo publicadas [F14][F15][F16][F17]. 6) Não existem medições Android ms/decisão para o Laya — só uma referência desktop (~370 ms para batch de 4×96 tokens, ORT 1.29 CPU) — e há contra-evidência de int4 mais rápido que int8 em CPUs VNNI, pelo que o impacto real da #23004 num encoder 421M (não LLM) não está quantificado [F13][F22][F23].",
+  "afirmacoes": [
+    {
+      "texto": "A issue microsoft/onnxruntime#23004 '[Performance] MatMulNBits Performance' está ABERTA (não resolvida) e está atribuída a fajin-corp (Jing Fang).",
+      "fontes": [
+        "F1"
+      ],
+      "citacao_literal": "Open\n\nOpen\n\n[[Performance] MatMulNBits Performance](#top)#23004\n\nCopy link\n\nAssignees\n\nfajin-corp",
+      "central": true
+    },
+    {
+      "texto": "A issue #23004 foi aberta a 4 de dezembro de 2024 por DakeQQ.",
+      "fontes": [
+        "F1"
+      ],
+      "citacao_literal": "@DakeQQ\n\nDakeQQ (DakeQQ)\n\nopened on Dec 4, 2024",
+      "central": true
+    },
+    {
+      "texto": "A queixa central: MatMulNBits com quant types int4/uint4 (f32 e f16) é pelo menos 10× mais lento que MatMulIntegerToFloat/DynamicQuantizeMatMul (int8/uint8 dinâmico) em CPUs de todas as plataformas testadas.",
+      "fontes": [
+        "F1"
+      ],
+      "citacao_literal": "Why do `MatMulNBits` operators with quant types `int4`/`uint4` (both `f32` and `f16` as dtypes) perform at least 10x slower than `MatMulIntegerToFloat`/`DynamicQuantizeMatMul` in the dynamic quantization process (`int8/uint8`) on CPUs across platforms?",
+      "central": true
+    },
+    {
+      "texto": "Plataformas afetadas segundo a issue incluem Android+Qualcomm+Arm64-v8.6 (além de Linux+Intel, Windows+Intel e Mac+M3).",
+      "fontes": [
+        "F1"
+      ],
+      "citacao_literal": "Android+Qualcomm+Arm64-v8.6",
+      "central": true
+    },
+    {
+      "texto": "A versão reportada na issue é ONNX Runtime 1.20.1 (API Python, Execution Provider: Default CPU).",
+      "fontes": [
+        "F1"
+      ],
+      "citacao_literal": "### ONNX Runtime Version or Commit ID\n\n1.20.1\n\n### ONNX Runtime API\n\nPython",
+      "central": true
+    },
+    {
+      "texto": "Os modelos do relatório eram LLM pequenos (0.5B–3B: Llama, Phi, Qwen, Gemma) — workload de geração, não encoders BERT-like de passe único como o do Laya.",
+      "fontes": [
+        "F1"
+      ],
+      "citacao_literal": "The test models range from small LLMs (0.5B to 3B parameters), including Llama, Phi, Qwen, and Gemma, all showing the same performance results.",
+      "central": true
+    },
+    {
+      "texto": "Não há workaround oficial (int8 / XNNPACK / thread count) publicado no conteúdo recuperável da #23004; as releases posteriores (ex. 1.24+) apenas documentam melhorias incrementais aos kernels MatMulNBits (caminho fp16 2/4/8-bit, precisão de acumulação wide-tile) sem reivindicar o fecho da issue.",
+      "fontes": [
+        "F1",
+        "F26",
+        "F27"
+      ],
+      "citacao_literal": "improved fp16 MatMulNBits paths by avoiding fp32 temporaries and writing fp16 output directly across 2-, 4-, and 8-bit paths",
+      "central": true
+    },
+    {
+      "texto": "O artefacto do Laya (m1rhan/laya-typed-decisions-ONNX) contém onnx/model_q4.onnx com 428 MB, quantização 4-bit weight-only via MatMulNBitsQuantizer block_size=32 simétrico, validado com 6/6 argmax matches em fixtures de decisão.",
+      "fontes": [
+        "F11"
+      ],
+      "citacao_literal": "`onnx/model_q4.onnx` | 428 MB | 4-bit weight-only quantized (`MatMulNBitsQuantizer`, block_size=32, symmetric). Verified against 6 real decision fixtures spanning every temperature-calibration bucket: **6/6 argmax matches** on both the decision head and the act-gate head.",
+      "central": true
+    },
+    {
+      "texto": "O modelo Laya ONNX tem 5 inputs (input_ids, attention_mask, marker_pos, marker_mask, qtype) e 2 outputs (logits, act_logits).",
+      "fontes": [
+        "F11"
+      ],
+      "citacao_literal": "The model takes 5 inputs and returns 2 outputs:",
+      "central": true
+    },
+    {
+      "texto": "O artefacto foi exportado com torch.onnx.export dynamo=True, dynamic_shapes (Dim-based do torch.export) e opset_version=18.",
+      "fontes": [
+        "F11"
+      ],
+      "citacao_literal": "`torch.onnx.export(..., dynamo=True, dynamic_shapes=<torch.export.Dim-based>, opset_version=18)`",
+      "central": true
+    },
+    {
+      "texto": "Os builds fp32 e int8 do Laya não estão incluídos no repo m1rhan porque a quantização int8 'plain' (onnxruntime.quantization.quantize_dynamic) falha com ShapeInferenceError e incompatibilidades de tipo fp16/fp32 em DynamicQuantizeLinear — corrobora o registo interno '8-bit rebenta' no plano da exportação.",
+      "fontes": [
+        "F11"
+      ],
+      "citacao_literal": "ShapeInferenceError: Inferred shape and existing shape differ in dimension 0: (1028) vs (256)",
+      "central": true
+    },
+    {
+      "texto": "O contrato de sequência/decode do Laya: build_sequence com state + instruções tipadas + markers, e decode com calibração de temperatura → softmax → argmax/valor-esperado.",
+      "fontes": [
+        "F11"
+      ],
+      "citacao_literal": "Sequence construction (`state` + typed instructions + markers) and decode (temperature calibration → softmax → argmax/expected-value) follow the original SDK's `build_sequence` / `Agent.system_one` logic",
+      "central": true
+    },
+    {
+      "texto": "O pacote Maven onnxruntime-android (full package) suporta todos os tipos e operadores para modelos em formato ONNX — inclui portanto os contrib ops como MatMulNBits; já o onnxruntime-mobile é o pacote reduzido que exige conversão para ORT format.",
+      "fontes": [
+        "F18",
+        "F2"
+      ],
+      "citacao_literal": "This package contains the Android (aar) build of ONNX Runtime. It includes support for all types and operators, for ONNX format models.",
+      "central": true
+    },
+    {
+      "texto": "Os contrib ops (domínio com.microsoft, onde vive o MatMulNBits) são construídos no runtime por predefinição — confirma que o build full do plugin os contém.",
+      "fontes": [
+        "F19"
+      ],
+      "citacao_literal": "The contrib ops domain contains ops that are built in to the runtime by default.",
+      "central": true
+    },
+    {
+      "texto": "Para builds custom reduzidos, confirma-se a cobertura de ops do artefacto via ficheiro de configuração de operadores requeridos gerado pela conversão, passado a --include_ops_by_config.",
+      "fontes": [
+        "F25",
+        "F2"
+      ],
+      "citacao_literal": "The reduced set of ops in the custom build is specified with the configuration file provided to the `--include_ops_by_config` option.",
+      "central": true
+    },
+    {
+      "texto": "MatMulNBits exige ONNX Runtime ≥1.18 em CPU (requisito confirmado num build int8 weight-only do próprio Laya).",
+      "fontes": [
+        "F20",
+        "F21"
+      ],
+      "citacao_literal": "this needs an ONNX Runtime recent enough to ship that op — 1.18 or later on CPU. If your runtime is older, use the fp16 build.",
+      "central": true
+    },
+    {
+      "texto": "A recomendação oficial do ORT Mobile para Android: começar com o CPU Execution Provider se o modelo estiver quantizado; XNNPACK apenas para modelos não quantizados.",
+      "fontes": [
+        "F2"
+      ],
+      "citacao_literal": "If the model is quantized, start with the CPU Execution Provider. If the model is not quantized start with XNNPACK.",
+      "central": true
+    },
+    {
+      "texto": "O XNNPACK EP não implementa MatMulNBits — a tabela de ops suportadas cobre MatMul 2D fp32 desde 1.14, QLinearConv etc. — pelo que os nós MatMulNBits do Laya correm no CPU EP e o XNNPACK só pode acelerar o sub-grafo fp32 (atenção dinâmica, softmax, etc.).",
+      "fontes": [
+        "F4",
+        "F3"
+      ],
+      "citacao_literal": "| ai.onnx:Matmul | Only 2D Op is supported | since 1.14 |",
+      "central": true
+    },
+    {
+      "texto": "A configuração oficial de threads quando se usa XNNPACK EP (para evitar contenção com o threadpool ORT): desativar spinning intra-op do ORT, threads XNNPACK = núcleos físicos, intra-op ORT = 1.",
+      "fontes": [
+        "F3"
+      ],
+      "citacao_literal": "XNNPACK has a separate internal threadpool which can lead to contention with the ORT intra-op threadpool.",
+      "central": true
+    },
+    {
+      "texto": "NNAPI é contraindicado para este modelo: a implementação CPU do NNAPI (nnapi-reference) é frequentemente mais eficiente que os kernels ORT e os ops de quantização (MatMulInteger, DynamicQuantizeLinear) não entram no safe set da mobile package.",
+      "fontes": [
+        "F5",
+        "F12"
+      ],
+      "citacao_literal": "The CPU implementation of NNAPI (which is called nnapi-reference) is often less efficient than the optimized versions of the operation of ORT.",
+      "central": true
+    },
+    {
+      "texto": "Evidência empírica contrária ao NNAPI: em dispositivos reais a maioria cai para o fallback nnapi-reference (CPU) em vez de acelerador real, e modelos com dynamic shapes/ops de quantização particionam-se de forma que a criação de sessão falha ou cai para CPU.",
+      "fontes": [
+        "F24"
+      ],
+      "citacao_literal": "Most Android devices use `nnapi-reference` CPU fallback, not actual accelerators.",
+      "central": false
+    },
+    {
+      "texto": "O QNN EP não suporta modelos com dynamic shapes — incompatível com o artefacto do Laya, exportado com dynamic_shapes Dim-based, sem fixar formas.",
+      "fontes": [
+        "F6"
+      ],
+      "citacao_literal": "QNN EP does not support models with dynamic shapes (e.g., a dynamic batch size). Dynamic shapes must be fixed to a specific value.",
+      "central": true
+    },
+    {
+      "texto": "API Flutter concreta (onnxruntime_v2): criação de sessão a partir de bytes com OrtSession.fromBuffer(bytes, sessionOptions).",
+      "fontes": [
+        "F7"
+      ],
+      "citacao_literal": "final session = OrtSession.fromBuffer(bytes, sessionOptions);",
+      "central": true
+    },
+    {
+      "texto": "API Flutter para inferência: OrtValueTensor.createTensorWithDataList(data, shape) + OrtRunOptions + session.runAsync(runOptions, inputs) — apropriado para tensores int64 (input_ids, marker_pos, qtype) e para correr fora da UI thread/isolates.",
+      "fontes": [
+        "F7",
+        "F9"
+      ],
+      "citacao_literal": "final outputs = await _session?.runAsync(runOptions, inputs);",
+      "central": true
+    },
+    {
+      "texto": "O plugin onnxruntime_v2 é um fork do gtbluesky/onnxruntime_flutter (dart:ffi) que acrescenta suporte a páginas de memória de 16KB e aceleração GPU/hardware.",
+      "fontes": [
+        "F7",
+        "F9"
+      ],
+      "citacao_literal": "This fork adds support for 16KB memory page size and full GPU and hardware acceleration support",
+      "central": true
+    },
+    {
+      "texto": "O onnxruntime_v2 empacota ONNX Runtime v1.23.2 no Android (≥1.18, suficiente para MatMulNBits).",
+      "fontes": [
+        "F8"
+      ],
+      "citacao_literal": "Update ONNX Runtime to v1.23.2. Android: remove manual .so files from android/src",
+      "central": true
+    },
+    {
+      "texto": "O contrato do artefacto inclui marker_pos em int64 e aplicação da temperatura antes do softmax.",
+      "fontes": [
+        "F20"
+      ],
+      "citacao_literal": "options must fit the 192-token head budget, `marker_pos` is int64, and the temperature must be applied before softmax.",
+      "central": true
+    },
+    {
+      "texto": "Alternativa Flutter: flutter_onnxruntime (masic.ai, publicador verificado) é um plugin leve por wrappers nativos (platform channels) com CPU inference suportada em Android.",
+      "fontes": [
+        "F10"
+      ],
+      "citacao_literal": "A lightweight plugin that provides native wrappers for running ONNX Runtime on multiple platforms",
+      "central": false
+    },
+    {
+      "texto": "Opção de tokenização WordPiece em Dart puro: dart_wordpiece (BERT-compatible, produz input_ids/attention_mask/token_type_ids, sem dependências Flutter ou nativas).",
+      "fontes": [
+        "F14"
+      ],
+      "citacao_literal": "Pure Dart BERT-compatible WordPiece tokenizer. Outputs input_ids, attention_mask, and token_type_ids. No Flutter or native dependencies.",
+      "central": true
+    },
+    {
+      "texto": "Outra opção Dart pura: dart_bert_tokenizer (carrega tokenizer.json do Hugging Face, AddedTokens dinâmicos, alinhamento de offsets).",
+      "fontes": [
+        "F16"
+      ],
+      "citacao_literal": "A pure Dart BERT WordPiece tokenizer with Hugging Face tokenizer.json loading, pre-tokenized alignment, dynamic AddedTokens, Unicode offsets, and verified model fixtures.",
+      "central": true
+    },
+    {
+      "texto": "Opção nativa: hf_tokenizers (FFI para o crate Rust do Hugging Face) dá codificação byte-exact de BPE, WordPiece e Unigram a partir de tokenizer.json.",
+      "fontes": [
+        "F17"
+      ],
+      "citacao_literal": "HuggingFace tokenizers for Dart over FFI. Load any tokenizer.json and get byte-exact BPE, WordPiece, and Unigram encoding, backed by the Rust crate.",
+      "central": true
+    },
+    {
+      "texto": "Existe ainda o pacote bert_tokenizer (Dart puro, WordPiece para BERT, independente de Flutter).",
+      "fontes": [
+        "F15"
+      ],
+      "citacao_literal": "Pure Dart WordPiece tokenizer for BERT NLP models. Completely independent of Flutter.",
+      "central": false
+    },
+    {
+      "texto": "A única medição de performance encontrada para um export ONNX do Laya é desktop: ORT 1.29 CPU EP, ~370 ms para um batch de 4 perguntas de 96 tokens em 20 threads (~92 ms/decisão, sem overhead mobile).",
+      "fontes": [
+        "F13"
+      ],
+      "citacao_literal": "ONNX Runtime 1.29, CPU execution provider: ~370 ms for a batch of 4\nquestions of 96 tokens on 20 threads.",
+      "central": true
+    },
+    {
+      "texto": "Não foram encontradas medições públicas de latência (ms/decisão) do Laya ONNX em Android — nenhum dos artefactos públicos publica timings móveis.",
+      "fontes": [
+        "F11",
+        "F12",
+        "F13"
+      ],
+      "citacao_literal": "per-item accuracy of every build we compared (60 items; no timing fields)",
+      "central": true
+    },
+    {
+      "texto": "Contra-evidência à premissa 'int4 sempre mais lento': em CPUs x86 com VNNI o INT4 em formato MatMulNBits é ligeiramente mais rápido que INT8 (pesos 4-bit empacotam 2× mais elementos por cache line).",
+      "fontes": [
+        "F22"
+      ],
+      "citacao_literal": "On a CPU with VNNI (Cascade Lake / Ice Lake / Zen4), **INT4 is actually slightly faster end-to-end** than INT8 in the `MatMulNBits` format because the INT4 weights pack 2× more elements per cache line",
+      "central": true
+    },
+    {
+      "texto": "Contra-evidência adicional: num export int4 de parakeet-tdt-0.6b o int4 foi 17% mais rápido que o int8 equivalente (com metade da degradação de qualidade).",
+      "fontes": [
+        "F23"
+      ],
+      "citacao_literal": "Half the degradation of int8, at 39% smaller size and 17% faster speed.",
+      "central": true
+    },
+    {
+      "texto": "Um build int8 weight-only (MatMulNBits, block 64) do Laya foi publicado como funcional com saída idêntica — mostra que 'int8 do Laya rebenta' se aplica ao caminho quantize_dynamic (DynamicQuantizeLinear), não a todos os int8.",
+      "fontes": [
+        "F20",
+        "F11"
+      ],
+      "citacao_literal": "The same Laya model, 236 MB smaller, with identical output. Quantised with `MatMulNBits` (weight-only, block 64, symmetric) and exported to ONNX for ONNX Runtime.",
+      "central": true
+    },
+    {
+      "texto": "Noutro build int4 de laya (multilingual), o int8 dinâmico foi o único que degradou visivelmente a precisão, reforçando a preferência por weight-only 4-bit/8-bit em vez de quantize_dynamic.",
+      "fontes": [
+        "F12"
+      ],
+      "citacao_literal": "(dynamic quantization, a single per-tensor scale for the whole vocabulary) is the one that",
+      "central": false
+    }
+  ],
+  "fontes": [
+    {
+      "ref": "F1",
+      "url": "https://github.com/microsoft/onnxruntime/issues/23004",
+      "titulo": "[Performance] MatMulNBits Performance · Issue #23004 · microsoft/onnxruntime",
+      "autores": "DakeQQ (autor); Jing Fang / fajin-corp (assignee)",
+      "ano": "2024",
+      "veiculo": "GitHub (microsoft/onnxruntime)",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F2",
+      "url": "https://onnxruntime.ai/docs/tutorials/mobile",
+      "titulo": "Deploy on mobile | onnxruntime",
+      "autores": "ONNX Runtime team (Microsoft)",
+      "ano": "2026",
+      "veiculo": "onnxruntime.ai docs",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F3",
+      "url": "https://onnxruntime.ai/docs/execution-providers/Xnnpack-ExecutionProvider.html",
+      "titulo": "XNNPACK Execution Provider | onnxruntime",
+      "autores": "ONNX Runtime team (Microsoft)",
+      "ano": "2026",
+      "veiculo": "onnxruntime.ai docs",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F4",
+      "url": "https://github.com/microsoft/onnxruntime/tree/gh-pages/docs/execution-providers/Xnnpack-ExecutionProvider.md",
+      "titulo": "Xnnpack-ExecutionProvider.md (docs gh-pages, tabela de ops suportadas)",
+      "autores": "microsoft/onnxruntime",
+      "ano": "2026",
+      "veiculo": "GitHub",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F5",
+      "url": "https://onnxruntime.ai/docs/execution-providers/NNAPI-ExecutionProvider.html",
+      "titulo": "Android - NNAPI Execution Provider | onnxruntime",
+      "autores": "ONNX Runtime team (Microsoft)",
+      "ano": "2026",
+      "veiculo": "onnxruntime.ai docs",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F6",
+      "url": "https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html",
+      "titulo": "QNN Execution Provider - Qualcomm | onnxruntime",
+      "autores": "ONNX Runtime team (Microsoft)",
+      "ano": "2026",
+      "veiculo": "onnxruntime.ai docs",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F7",
+      "url": "https://pub.dev/packages/onnxruntime_v2",
+      "titulo": "onnxruntime_v2 | Flutter package",
+      "autores": "equipa do fork onnxruntime_v2 (uploader nao verificado)",
+      "ano": "2025",
+      "veiculo": "pub.dev",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F8",
+      "url": "https://pub.dev/packages/onnxruntime_v2/versions/1.23.2/changelog",
+      "titulo": "onnxruntime_v2 1.23.2 changelog",
+      "autores": "equipa do fork onnxruntime_v2",
+      "ano": "2025",
+      "veiculo": "pub.dev",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F9",
+      "url": "https://github.com/gtbluesky/onnxruntime_flutter",
+      "titulo": "gtbluesky/onnxruntime_flutter: A flutter plugin for OnnxRuntime",
+      "autores": "gtbluesky",
+      "ano": "2024",
+      "veiculo": "GitHub",
+      "tipo": "oficial",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F10",
+      "url": "https://pub.dev/packages/flutter_onnxruntime",
+      "titulo": "flutter_onnxruntime | Flutter package",
+      "autores": "masic.ai (publicador verificado)",
+      "ano": "2026",
+      "veiculo": "pub.dev",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F11",
+      "url": "https://huggingface.co/m1rhan/laya-typed-decisions-ONNX",
+      "titulo": "m1rhan/laya-typed-decisions-ONNX — Laya (typed-decisions) ONNX",
+      "autores": "m1rhan",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "integral"
+    },
+    {
+      "ref": "F12",
+      "url": "https://huggingface.co/androidli/laya-multilingual-onnx-int4",
+      "titulo": "androidli/laya-multilingual-onnx-int4 — laya multilingual ONNX int4",
+      "autores": "androidli / greatYiTin",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F13",
+      "url": "https://huggingface.co/mariojcr/laya-onnx",
+      "titulo": "mariojcr/laya-onnx — Laya ONNX export (english/multilingual/typed-decisions)",
+      "autores": "Mario Campos",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F14",
+      "url": "https://pub.dev/packages/dart_wordpiece",
+      "titulo": "dart_wordpiece | Dart package",
+      "autores": "korshun.xyz (publicador verificado)",
+      "ano": "2026",
+      "veiculo": "pub.dev",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F15",
+      "url": "https://pub.dev/packages/bert_tokenizer",
+      "titulo": "bert_tokenizer | Dart package",
+      "autores": "terminalwork.net (publicador verificado)",
+      "ano": "2026",
+      "veiculo": "pub.dev",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F16",
+      "url": "https://pub.dev/packages/dart_bert_tokenizer/versions",
+      "titulo": "dart_bert_tokenizer package - All Versions",
+      "autores": "brodykim.work (publicador verificado)",
+      "ano": "2026",
+      "veiculo": "pub.dev",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F17",
+      "url": "https://pub.dev/packages/hf_tokenizers",
+      "titulo": "hf_tokenizers | Dart package (HuggingFace tokenizers over FFI)",
+      "autores": "equipa hf_tokenizers",
+      "ano": "2026",
+      "veiculo": "pub.dev",
+      "tipo": "documentacao",
+      "nivel": "B",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F18",
+      "url": "https://central.sonatype.com/artifact/com.microsoft.onnxruntime/onnxruntime-android",
+      "titulo": "Maven Central: com.microsoft.onnxruntime:onnxruntime-android (POM oficial)",
+      "autores": "Microsoft",
+      "ano": "2026",
+      "veiculo": "Maven Central",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F19",
+      "url": "https://onnxruntime.ai/docs/reference/operators/ContribOperators.html",
+      "titulo": "Contrib operators | onnxruntime",
+      "autores": "ONNX Runtime team (Microsoft)",
+      "ano": "2026",
+      "veiculo": "onnxruntime.ai docs",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F20",
+      "url": "https://huggingface.co/inferenceprince/laya-onnx-int8",
+      "titulo": "inferenceprince/laya-onnx-int8 — Laya ONNX (int8 weight-only)",
+      "autores": "inferenceprince",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F21",
+      "url": "https://huggingface.co/cstr/F2LLM-v2-0.6B-ONNX-INT4",
+      "titulo": "cstr/F2LLM-v2-0.6B-ONNX-INT4 (MatMulNBits block_size=32)",
+      "autores": "cstr",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F22",
+      "url": "https://huggingface.co/cstr/cohere-transcribe-onnx-int8",
+      "titulo": "cstr/cohere-transcribe-onnx-int8 (comparacao INT4 vs INT8 em MatMulNBits)",
+      "autores": "cstr",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F23",
+      "url": "https://huggingface.co/efederici/parakeet-tdt-0.6b-v3-onnx-int4",
+      "titulo": "efederici/parakeet-tdt-0.6b-v3-onnx-int4 (int4 vs int8: velocidade e WER)",
+      "autores": "efederici",
+      "ano": "2026",
+      "veiculo": "Hugging Face",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F24",
+      "url": "https://github.com/siva-sub/NekoSpeak/blob/main/docs/adr/ADR-001-nnapi-execution-provider.md",
+      "titulo": "ADR-001: NNAPI Execution Provider for Hardware Acceleration (NekoSpeak)",
+      "autores": "siva-sub",
+      "ano": "2026",
+      "veiculo": "GitHub",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F25",
+      "url": "https://onnxruntime.ai/docs/build/custom.html",
+      "titulo": "Custom build | onnxruntime",
+      "autores": "ONNX Runtime team (Microsoft)",
+      "ano": "2026",
+      "veiculo": "onnxruntime.ai docs",
+      "tipo": "documentacao",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F26",
+      "url": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.1",
+      "titulo": "Release ONNX Runtime v1.24.1 · microsoft/onnxruntime",
+      "autores": "ONNX Runtime team (Microsoft)",
+      "ano": "2025",
+      "veiculo": "GitHub Releases",
+      "tipo": "oficial",
+      "nivel": "A",
+      "lida": "trechos"
+    },
+    {
+      "ref": "F27",
+      "url": "https://data.safetycli.com/packages/pypi/onnxruntime/changelog",
+      "titulo": "onnxruntime Changelog (espelho do changelog PyPI)",
+      "autores": "Safety CLI (espelho de terceiros)",
+      "ano": "2026",
+      "veiculo": "data.safetycli.com",
+      "tipo": "blogue",
+      "nivel": "C",
+      "lida": "trechos"
+    }
+  ],
+  "contradicoes": [
+    {
+      "tema": "Desempenho relativo de MatMulNBits int4 vs int8 em CPU",
+      "posicoes": [
+        {
+          "fonte": "F1",
+          "diz": "MatMulNBits int4/uint4 é pelo menos 10× mais lento que int8 dinâmico (MatMulIntegerToFloat/DynamicQuantizeMatMul) em CPUs de todas as plataformas testadas (ORT 1.20.1, LLM 0.5B–3B, incl. Android Arm64)."
+        },
+        {
+          "fonte": "F22",
+          "diz": "Em CPU com VNNI o INT4 em formato MatMulNBits é ligeiramente mais rápido end-to-end que INT8 (31.9s vs 44.7s num clip de 5.4s, ORT 1.24.4)."
+        },
+        {
+          "fonte": "F23",
+          "diz": "Num export int4 de Parakeet-0.6B o int4 foi 17% mais rápido que o int8 (RTF 0.086 vs 0.110) com metade da degradação de qualidade."
+        }
+      ],
+      "explicacao_provavel": "metodo"
+    },
+    {
+      "tema": "'O int8 do Laya rebenta' vs build int8 do Laya publicado como funcional",
+      "posicoes": [
+        {
+          "fonte": "F11",
+          "diz": "Plain fp32 e int8 não estão incluídos: onnxruntime.quantization.quantize_dynamic falha com ShapeInferenceError (1028 vs 256) e mismatch de tipos fp16/fp32 em DynamicQuantizeLinear."
+        },
+        {
+          "fonte": "F20",
+          "diz": "Existe um build int8 weight-only do Laya (MatMulNBits, block 64, symmetric) com saída idêntica, funcional com ORT ≥1.18 em CPU."
+        }
+      ],
+      "explicacao_provavel": "definicao"
+    },
+    {
+      "tema": "NNAPI como acelerador Android (3-7x no README do plugin) vs NNAPI contraproducente",
+      "posicoes": [
+        {
+          "fonte": "F7",
+          "diz": "O README do onnxruntime_v2 apresenta NNAPI para Android com speedup 3-7x e ativação automática em Android 8.1+."
+        },
+        {
+          "fonte": "F5",
+          "diz": "O fallback CPU do NNAPI (nnapi-reference) é frequentemente mais eficiente... do que seria apropriado: é mais lento que os kernels ORT, recomendando-se desativar o fallback."
+        },
+        {
+          "fonte": "F24",
+          "diz": "Em testes em dispositivos reais, apenas ~26% dos nós eram suportados, a criação de sessão falhava e a maioria dos devices caía para nnapi-reference (CPU)."
+        }
+      ],
+      "explicacao_provavel": "populacao"
+    },
+    {
+      "tema": "Workaround oficial para a #23004 (int8? XNNPACK? thread count?)",
+      "posicoes": [
+        {
+          "fonte": "F1",
+          "diz": "O corpo da issue documenta o problema e a configuração de quantização usada (accuracy_level=4, block_size=256), mas o conteúdo recuperável não contém resposta do maintainer nem workaround fechado; a issue permanece aberta."
+        },
+        {
+          "fonte": "F27",
+          "diz": "O changelog de releases posteriores só documenta melhorias incrementais de kernels MatMulNBits (caminho fp16 2/4/8-bit, precisão wide-tile), sem menção de resolução do problema global."
+        }
+      ],
+      "explicacao_provavel": "desconhecida"
+    }
+  ],
+  "lacunas": [
+    "Os comentários da thread da issue #23004 não foram recuperáveis via extract (o GitHub serve a discussão dinamicamente) — não se pode excluir que exista um workaround oficial do assignee fajin-corp ou um PR de fix associado que resolva parcialmente o problema.",
+    "Não existem medições públicas de latência (ms/decisão) do model_q4.onnx em Android; a única referência de tempo do Laya é desktop (~370 ms para batch de 4×96 tokens, ORT 1.29 CPU, 20 threads) e não inclui overhead de tokenização nem dart:ffi.",
+    "Não está confirmado qual o tokenizer.json/vocab exato do checkpoint typed-decisions (WordPiece de família BERT/ModernBERT) nem a paridade byte-exact da tokenização Dart puro face ao HF tokenizers (os 6/6 fixtures de F11 validam o ONNX, não a tokenização em Dart).",
+    "Não há medições do custo da tokenização WordPiece em Dart puro vs hf_tokenizers (FFI Rust) em dispositivo móvel — os READMEs têm secção de performance sem números comparativos recuperados.",
+    "Não foi verificado empiricamente num build do plugin Flutter que o kernel MatMulNBits fica registado (método prático: carregar o model_q4.onnx com OrtSession.fromBuffer — o ORT falha ao criar a sessão se faltar implementação do op — e confirmar a versão embutida ≥1.18).",
+    "Desconhece-se o ganho real do XNNPACK EP sobre o sub-grafo fp32 da atenção do Laya quando os restantes nós (MatMulNBits) correm no CPU EP — os +87% conhecidos são de um LLM, não deste encoder."
+  ],
+  "novas_perguntas": [
+    {
+      "pergunta": "A thread completa da issue #23004 contém workaround oficial do maintainer (int8? accuracy_level? thread count?) ou PR de fix ligado? Confirmar via gh CLI/API do GitHub, que o extract não conseguiu ler.",
+      "origem": "lacuna",
+      "prioridade": "alta",
+      "porque": "Define se existe receita oficial de mitigação para (a) e evita reinventar o workaround."
+    },
+    {
+      "pergunta": "Qual a latência ms/decisão real do model_q4.onnx num Android (ex. Pixel 8a) com ORT 1.23+ CPU EP, sequências 96-192 tokens, com e sem XNNPACK registado?",
+      "origem": "quantificacao",
+      "prioridade": "alta",
+      "porque": "É o critério (e) e o go/no-go do decisor local: não existe nenhum dado Android público."
+    },
+    {
+      "pergunta": "Qual tokenizer.json/vocab usa o checkpoint typed-decisions e qual o custo medido de encode em Dart puro vs hf_tokenizers (FFI Rust) num telemóvel?",
+      "origem": "definicao",
+      "prioridade": "media",
+      "porque": "Sem isto a paridade de tokenização (e portanto os 6/6 fixtures) não está garantida em Dart."
+    },
+    {
+      "pergunta": "O XNNPACK EP aceita e acelera de facto o sub-grafo fp32 (attention/softmax) do Laya quando os nós MatMulNBits caem no CPU EP, ou o particionamento anula o ganho?",
+      "origem": "contra-evidencia",
+      "prioridade": "media",
+      "porque": "Decide a configuração de EP/threads recomendada (CPU puro vs CPU+XNNPACK com spinning off, intra-op 1)."
+    },
+    {
+      "pergunta": "As melhorias de kernels MatMulNBits das releases 1.24–1.30 (caminho fp16 sem temporários fp32, acumulação wide-tile) reduziram o gap int4/int8 em ARM64 móvel?",
+      "origem": "atualidade",
+      "prioridade": "media",
+      "porque": "Se sim, o impacto da #23004 pode já ser menor na ORT 1.23.2+ do plugin do que em 1.20.1."
+    },
+    {
+      "pergunta": "O '8-bit rebenta' regista falha de exportação (quantize_dynamic/DynamicQuantizeLinear fp16) ou falha de runtime dos kernels MatMulNBits 8-bit no ORT Android — dado que existe um build int8 weight-only de Laya a afirmar-se funcional (F20)?",
+      "origem": "definicao",
+      "prioridade": "baixa",
+      "porque": "Esclarece se uma variante int8 do artefacto é alternativa viável de fallback em Android."
+    }
+  ],
+  "fontes_nao_usadas": [
+    {
+      "url": "https://huggingface.co/blog/Emma-N/enjoy-the-power-of-phi-3-with-onnx-runtime",
+      "porque_pode_importar": "Blogue HF sobre kernels ARM64 INT4 do ORT Mobile (Phi-3 num Galaxy S21) — evidência de que existe caminho otimizado int4 em CPU móvel, útil para calibrar expectativas de desempenho do encoder."
+    },
+    {
+      "url": "https://huggingface.co/OpenMed/OpenMed-PII-Turkish-mLiteClinical-Base-135M-v1-onnx-android/commit/1005a8d",
+      "porque_pode_importar": "Lista de avisos reais de exportação Android ('MatMulInteger/DynamicQuantizeLinear is not in the Android ONNX Runtime Mobile NNAPI/XNNPACK safe set') — corrobora a contraindicação de NNAPI e os limites do pacote mobile reduzido."
+    },
+    {
+      "url": "https://discuss.ai.google.dev/t/neural-network-fallback-to-cpu-using-nnapi-on-android/32555",
+      "porque_pode_importar": "Relatos de utilizadores (Pixel 6, S21, etc.) de fallback NNAPI→CPU em vários devices — corroboraria a experiência negativa com NNAPI além da fonte F24."
+    },
+    {
+      "url": "https://huggingface.co/cstr/cohere-transcribe-onnx-int4/commit/320e821cc1cb88fe30c2fa8dd0148a0e1e482cb4",
+      "porque_pode_importar": "Benchmarks reais INT4 vs INT8 do mesmo modelo (44.7s vs 31.9s, script incluído) — quantifica a contradição de desempenho relativo int4/int8."
+    },
+    {
+      "url": "https://pub.dev/packages/onnxruntime_v2/versions",
+      "porque_pode_importar": "Histórico de versões do plugin — para fixar a versão e mapear cada release à versão de ORT Android embutida (decisão de pin para o artefacto 4-bit)."
+    },
+    {
+      "url": "https://learn.arm.com/learning-paths/servers-and-cloud-computing/onnx-on-azure/benchmarking",
+      "porque_pode_importar": "Metodologia de benchmark do ORT (P50/P90/P95/P99, sessão + latência) — template para o plano de medição Android em falta."
+    }
+  ],
+  "consultas": [
+    "search: onnxruntime issue 23004 MatMulNBits int4 slow int8 mobile CPU",
+    "search: ONNX Runtime Mobile contrib ops MatMulNBits build required ops Android",
+    "extract: https://github.com/microsoft/onnxruntime/issues/23004 — 'MatMulNBits int4 slower than int8 mobile CPU performance workaround status fixed versions'",
+    "search: onnxruntime 23004 MatMulNBits 10x slower int8 github issue",
+    "extract: https://github.com/microsoft/onnxruntime/issues/23004 — 'comments discussion workaround thread count XNNPACK accuracy_level block size resolved closed reply from maintainers'",
+    "search: onnxruntime MatMulNBits slow workaround XNNPACK threads Android arm64 int4 performance",
+    "search: onnxruntime_v2 pub.dev Flutter plugin onnxruntime Android session API",
+    "search: gtbluesky onnxruntime_flutter github README InferenceSession OrtEnv",
+    "extract: https://pub.dev/packages/onnxruntime_v2 — 'ONNX Runtime version bundled contrib ops MatMulNBits execution providers XNNPACK NNAPI GPU Android ort session run int64 tensor API'",
+    "extract: https://github.com/gtbluesky/onnxruntime_flutter — 'ONNX Runtime version bundled Android providers XNNPACK NNAPI GPU session creation run inference OrtValue int64 tensor'",
+    "extract: https://github.com/microsoft/onnxruntime/issues/23004 (chunks=5) — 'issue comments replies benchmark numbers int4 int8 DakeQQ fajin-corp response fix PR merged'",
+    "search: onnxruntime.ai docs mobile prebuilt package android create custom build required ops ORT format",
+    "extract: https://onnxruntime.ai/docs/tutorials/mobile — 'prebuilt package full operator set contrib ops MatMulNBits NNAPI XNNPACK deprecated hardware accelerators Android ORT format conversion required operators'",
+    "search: m1rhan laya-typed-decisions-ONNX huggingface model_q4.onnx",
+    "search: WordPiece tokenizer Dart package Flutter BERT tokenization pub.dev",
+    "search: BERT encoder ONNX Android latency benchmark ms inference mobile CPU XNNPACK",
+    "extract: https://huggingface.co/m1rhan/laya-typed-decisions-ONNX + https://huggingface.co/androidli/laya-multilingual-onnx-int4 — 'opset 18 dynamic shapes inputs marker_pos qtype outputs logits act_logits tokenizer WordPiece vocab performance ms latency Android mobile benchmark 4-bit int4 int8 crash error'",
+    "search: onnxruntime release notes MatMulNBits performance improvement 1.21 1.22 1.23 ARM64 int4 kernel",
+    "search: MatMulNBits NNAPI QNN not supported fallback CPU EP partition quantized model mobile Android dequantize",
+    "extract: https://pub.dev/packages/dart_wordpiece — 'performance benchmark tokens per second encode latency microseconds native Rust hf_tokenizers comparison'",
+    "search: Flutter package huggingface tokenizers Rust dart ffi WordPiece native binding pub.dev",
+    "search: onnxruntime-android AAR prebuilt full operator set contrib ops com.microsoft MatMulNBits included"
+  ],
+  "alertas_seguranca": [
+    {
+      "url": "https://data.safetycli.com/packages/pypi/onnxruntime/changelog",
+      "sinais": [
+        "espelho de terceiros de changelog oficial (data.safetycli.com), nao a fonte primaria microsoft/onnxruntime"
+      ],
+      "acao": "usada-so-com-corroboracao"
+    }
+  ]
+}

@@ -1,0 +1,305 @@
+{
+  "id": "Q4",
+  "estado": "respondida",
+  "confianca": "moderada",
+  "resposta": "Para Flutter/Android com GGUF, o melhor caminho é llama.cpp via FFI com o pacote netdur/llama_cpp_dart (linha 0.9.x): é o único binding Flutter desenhado para mobile, corre inferência num worker isolate (fora da UI thread), tem streaming Stream<GenerationEvent>, SamplerParams/ContextParams e cancelamento (StopReason.StopUserAbort), e distribui AAR Android pré-compilado [F1][F2]. Porém não inclui parser de tool calls nem Jinja completo (usa llama_chat_apply_template; 'real Jinja support' está planeado para antes da 1.0), pelo que os tool calls devem ser extraídos em pós-processamento (parser XML) ou obtidos replicando common/chat.h + minja como faz o llama.rn — que tem tool calling universal (fallback GENERIC) mas é React Native e serve como referência de implementação [F1][F3][F7]. MNN-LLM e LiteRT-LM não leem GGUF — exigem conversão (llmexport → llm.mnn + llm_config.json com chat template Jinja; formato .litertlm) — mas o LiteRT-LM tem Tool Use oficial, API Kotlin estável e API Flutter em estado Community [F8][F16][F4][F14]. Desempenho esperado em Android: ~34–56 tok/s de decode com 1.5B Q4 em CPU (Snapdragon 8 Elite/8gen3/8gen2), ~9–17 tok/s para modelos 3B em GPU OpenCL e ~13 tok/s relatados para 3B 4-bit em Snapdragon 8gen3 com llama.cpp; RAM ≈ pesos + KV (2,5–3 GB para um 2B Q4) com bloco fixo alocado à carga [F10][F11][F19][F9]. Armadilhas confirmadas: o AAR do llama_cpp_dart é apenas arm64-v8a (emulador x86_64 exige build próprio com NDK/CMake), os compute shaders do llama.cpp GPU estão otimizados só para Adreno, o mmap + alocação monolítica tornam a eviction tudo-ou-nada sob pressão de memória em Android, e templates Jinja com tools ainda rebentam no minja (filtros desconhecidos, argumentos não-mapping) [F1][F18][F21][F15].",
+  "afirmacoes": [
+    {
+      "texto": "llama_cpp_dart (0.9.x) roda inferência fora da thread de UI ('off-thread', worker isolate) e é explícito quanto a ser single-active-session para apps Flutter mobile.",
+      "fontes": ["F1"],
+      "citacao_literal": "the public API is single-active-session, off-thread, multimodal-aware, and packaged for iOS / Android only.",
+      "central": true
+    },
+    {
+      "texto": "llama_cpp_dart ainda não tem suporte real a Jinja — está planeado como mudança potencialmente quebradora antes da 1.0 — e o chat usa o template embutido reconhecido por llama_chat_apply_template, sem parser de tool calls.",
+      "fontes": ["F1"],
+      "citacao_literal": "most likely around: real Jinja support, on-device validation findings, and final naming for chat-template/policy knobs.",
+      "central": true
+    },
+    {
+      "texto": "O AAR Android pré-compilado do llama_cpp_dart cobre apenas arm64-v8a (CPU + mtmd) e é empacotado automaticamente pelo Flutter, sem edições no Gradle da app.",
+      "fontes": ["F1"],
+      "citacao_literal": "(CPU + mtmd, arm64-v8a) | bundled automatically by Flutter; no app Gradle edits",
+      "central": true
+    },
+    {
+      "texto": "O llama.rn tem tool calling universal usando minja como parser Jinja e o chat.cpp do llama.cpp (a mesma maquinaria de common/chat.h).",
+      "fontes": ["F3"],
+      "citacao_literal": "`llama.rn` has universal tool call support by using [minja](https://github.com/google/minja) (as Jinja template parser) and [chat.cpp](https://github.com/ggerganov/llama.cpp/blob/master/common/chat.cpp) in llama.cpp.",
+      "central": true
+    },
+    {
+      "texto": "No llama.cpp, o function calling vive em common/chat.h (usado pelo llama-server com --jinja) com handlers nativos por formato e fallback Generic quando o template não é reconhecido.",
+      "fontes": ["F7"],
+      "citacao_literal": "Generic tool call is supported when the template isn't recognized by native format handlers (you'll see `Chat format: Generic` in the logs).",
+      "central": true
+    },
+    {
+      "texto": "O modo Generic do llama.cpp é universal mas consome mais tokens e é menos eficiente que o formato nativo do modelo — argumento a favor de pós-processamento/gramática própria para tool calls XML.",
+      "fontes": ["F7"],
+      "citacao_literal": "Generic support may consume more tokens and be less efficient than a model's native format.",
+      "central": false
+    },
+    {
+      "texto": "Templates Jinja com tools rebentam com frequência no parser minja do llama.cpp (ex.: filtro built-in desconhecido em argumentos de tool call), exigindo --chat-template-file com template corrigido — a evidência contrária mais repetida sobre tool calling em mobile.",
+      "fontes": ["F15"],
+      "citacao_literal": "Error: Unknown (built-in) filter 'items' for type String",
+      "central": true
+    },
+    {
+      "texto": "LiteRT-LM tem Tool Use (function calling) para workflows agênticos como feature declarada.",
+      "fontes": ["F4"],
+      "citacao_literal": "🔧 **Tool Use**: Function calling support for agentic workflows.",
+      "central": true
+    },
+    {
+      "texto": "A API Flutter do LiteRT-LM está em estado Community (Kotlin/Python/C++ estáveis; Swift/JS em early preview).",
+      "fontes": ["F4"],
+      "citacao_literal": "| **Flutter** | 🚀 Community | Cross-platform mobile |",
+      "central": true
+    },
+    {
+      "texto": "MNN-LLM não lê GGUF: os modelos exportados via llmexport trazem llm.mnn + llm.mnn.weight + llm_config.json, este com chat template Jinja (incluindo bloco de tools/tool_call).",
+      "fontes": ["F16"],
+      "citacao_literal": "| `llm_config.json` | Model config with Jinja chat template |",
+      "central": true
+    },
+    {
+      "texto": "Em Android de gama alta recente, llama.cpp em CPU com Qwen2.5-1.5B w4 atinge ~34–56 tok/s de decode (Xiaomi 17/OnePlus 15/Xiaomi 15/Xiaomi 14) e 157–417 tok/s de prefill.",
+      "fontes": ["F10"],
+      "citacao_literal": "Qwen2.5-1.5B | CPU | llama.cpp | w4 | 417.3 | 299.9 | 329.2 | 157.2 | 3.3e4 | 1.5e4 | 51.6 | 55.7 | 53.9 | 34.5",
+      "central": true
+    },
+    {
+      "texto": "Para modelos 3B em GPUs móveis (OpenCL) o decode de Llama 3.2 3B q8 ronda 8,7–17,1 tok/s conforme o dispositivo.",
+      "fontes": ["F11"],
+      "citacao_literal": "Llama3.2 3B q8 960 17.1 917 17.5 720 15.4 791 12.5 507 8.71",
+      "central": true
+    },
+    {
+      "texto": "Modelos 3B low-bit com llama.cpp em telemóvel Snapdragon foram relatados a ~13 tok/s de geração.",
+      "fontes": ["F19"],
+      "citacao_literal": "about 13 tokens per second on a mobile phone equipped with a Qualcomm Snapdragon chip",
+      "central": true
+    },
+    {
+      "texto": "O warm-up no llama.cpp em telemóvel deve-se sobretudo ao mmap dos pesos (acesso direto ao ficheiro, sem cópia user/kernel), com ganho que persiste enquanto a memória não for reutilizada.",
+      "fontes": ["F9"],
+      "citacao_literal": "the warm-up process significantly reduces preparation time for llama.cpp, primarily due to the use of mmap",
+      "central": true
+    },
+    {
+      "texto": "Em Android sob pressão de memória, o llama.cpp aloca monoliticamente (pesos+KV num bloco), o que limita a eviction/restauração a tudo-ou-nada (risco de OOM/kill com modelos ~2,5 GB).",
+      "fontes": ["F21"],
+      "citacao_literal": "default llama.cpp adopts monolithic memory allocation, limiting it to all-or-nothing eviction",
+      "central": true
+    },
+    {
+      "texto": "O cancelamento de geração está exposto na API do fcllama (stopCompletion por contextId) e no llama_cpp_dart (StopReason.StopUserAbort).",
+      "fontes": ["F6", "F1"],
+      "citacao_literal": "FCllama.instance()?.stopCompletion(contextId: double.parse(modelContextId)); // stop one completion",
+      "central": true
+    },
+    {
+      "texto": "Os compute shaders do backend de GPU (Vulkan/OpenCL) do llama.cpp estão otimizados apenas para GPUs Adreno — em Mali/Immortalis o ganho vs CPU é inconsistente.",
+      "fontes": ["F18"],
+      "citacao_literal": "this is because llama.cpp currently only contains optimized compute shaders for Adreno GPUs",
+      "central": true
+    },
+    {
+      "texto": "O binding Android oficial do llama.cpp (examples/llama.android) compila via Gradle/CMake e suporta aceleração SME2 (Arm) e AMX (x86-64) com deteção automática de features da CPU.",
+      "fontes": ["F20"],
+      "citacao_literal": "This Android binding supports hardware acceleration up to `SME2` for Arm and `AMX` for x86-64 CPUs on Android and ChromeOS devices.",
+      "central": false
+    },
+    {
+      "texto": "llama_cpp_dart é maduro mas pré-1.0: a última versão estável na pub.dev é 0.2.2 (há ~8 meses) e a linha atual é prerelease 0.9.0-dev.x, com API sujeita a quebras.",
+      "fontes": ["F2", "F1"],
+      "citacao_literal": "Published 8 months ago • Latest: 0.2.2 / Prerelease: 0.9.0-dev.12",
+      "central": true
+    },
+    {
+      "texto": "O fcllama cobre Android nas ABIs arm64-v8a, x86_64 e armeabi-v7a (logo, corre em emulador x86_64), mas está estagnado (0.0.3, há ~22 meses) e sem backend de GPU.",
+      "fontes": ["F6"],
+      "citacao_literal": "Currently only supported arm64-v8a / x86_64 / armeabi-v7a platform, this means you can't initialize a context on another platforms.",
+      "central": true
+    },
+    {
+      "texto": "A stack LiteRT/LiteRT-LM acelera via XNNPack (CPU) e ML Drift (GPU).",
+      "fontes": ["F14"],
+      "citacao_literal": "LiteRT provides the foundational hardware acceleration via XNNPack for CPU and ML Drift for GPU.",
+      "central": false
+    },
+    {
+      "texto": "O llama.rn tem persistência de sessão/estado binário que pula o processamento de prompt (prefetch de contexto), e o llama_cpp_dart tem o equivalente (LlamaSession + StateCodec com validação de compatibilidade).",
+      "fontes": ["F3", "F1"],
+      "citacao_literal": "The session file is a binary file that contains the state of the context, it can saves time of prompt processing.",
+      "central": true
+    }
+  ],
+  "opcoes": [
+    {
+      "nome": "llama.cpp via FFI (recomendado) — llama_cpp_dart",
+      "pacote": "pub.dev: llama_cpp_dart (netdur), git github.com/netdur/llama_cpp_dart",
+      "maturidade": "Linha 0.9.x em prerelease (0.9.0-dev.12), última estável 0.2.2 há ~8 meses, 82 likes; rewrite focado só em Flutter mobile; API pode quebrar até 1.0; pin de llama.cpp na tag b10182; usos reais reportados em apps Flutter com llamadart/fllama (ecossistema)",
+      "api_exemplo": "0.9.x: `final engine = await LlamaEngine.spawn(libraryPath: 'libllama.so', ...)` (worker isolate) → `EngineSession.generate(prompt: ...)` devolve `Stream<GenerationEvent>` (`TokenEvent|ShiftEvent|DoneEvent`); sampling via `SamplerParams`, contexto via `ContextParams` (typeK/typeV p/ KV-cache q8_0/iq4_nl), chat via `ChatMessage`/`KnownChatTemplates` (llama_chat_apply_template), cancelamento com `StopReason.StopUserAbort`. 0.2.2 (estável): `LlamaLoad(path, modelParams: ModelParams(), contextParams: ContextParams(), samplingParams: SamplerParams(), format: ChatMLFormat())` → `LlamaParent(loadCommand); await init(); llamaParent.stream.listen(...); llamaParent.sendPrompt('2+2 = ?')`",
+      "tool_calls_jinja": "parcial",
+      "build_requisitos": "Sem CMake/NDK no consumidor: hook de native-assets empacota o AAR CPU (só arm64-v8a) e há AAR Hexagon (CPU+OpenCL+NPU, arm64-v8a); iOS via xcframework (Embed & Sign). Para x86_64 (emulador) é preciso build próprio do AAR com Android NDK + CMake (scripts em tool/); fallback: AVD arm64 com tradução",
+      "fontes": ["F1", "F2"]
+    },
+    {
+      "nome": "llama.cpp via platform channel — FCllama (Fllama)",
+      "pacote": "pub.dev: fcllama (xuegao-tzx/Fllama)",
+      "maturidade": "0.0.3 publicado há ~22 meses, 5 likes, 91 downloads; platform channel (não FFI); manutenção fraca; usado como referência em guias de integração Flutter",
+      "api_exemplo": "`FCllama.instance()` → initContext/generate com callback/stream; cancelamento: `FCllama.instance()?.stopCompletion(contextId: ...)`; `releaseContext(...)` / `releaseAllContexts()`",
+      "tool_calls_jinja": "nao",
+      "build_requisitos": "Compila llama.cpp dentro do build Android: CMake 3.31.0, Android SDK 35, NDK 28.0.x (o README do repo indica 28.0.12674087; o da pub.dev indica 28.0.12433566); ABIs arm64-v8a, x86_64 e armeabi-v7a (corre em emulador x86_64), minSdk 23; sem qualquer backend de GPU; iOS 14+ com Metal",
+      "fontes": ["F5", "F6"]
+    },
+    {
+      "nome": "llama.rn (React Native) — só como referência/ponte JNI própria",
+      "pacote": "npm: llama.rn (mybigday/BRICKS)",
+      "maturidade": "Madura e muito ativa (v0.10+, exige New Architecture do RN); binários pré-compilados verificados por SHA-256 (xcframework iOS + jniLibs Android); usada em apps de produção (ex.: EdgeLLM, PocketPal)",
+      "api_exemplo": "`const ctx = await initLlama({model, n_ctx, n_gpu_layers, ...})` → `context.completion(params, partialCompletionCallback)` (inspirado no /completion e /chat/completions do server.cpp; expõe tokenize/detokenize/embedding/rerank); tool calling com `tools` no params e `tool_calls` no resultado (minja+chat.cpp, fallback GENERIC JSON); GBNF/response_format json_schema; `context.parallel.completion(...)` devolve `{requestId, promise, stop}`; sessão com save/load de estado",
+      "tool_calls_jinja": "sim",
+      "build_requisitos": "Pré-compilados descarregados no postinstall; build de origem com `rnllamaBuildFromSource=true`; OpenCL (GPU) exige `<uses-native-library android:name=\"libOpenCL.so\" .../>`; Hexagon/HTP experimental (libcdsprpc.so); consumível em Flutter apenas escrevendo uma ponte method-channel/JNI própria sobre o cpp/ do projeto",
+      "fontes": ["F3"]
+    },
+    {
+      "nome": "MNN-LLM (Alibaba) — exige conversão do modelo",
+      "pacote": "github.com/alibaba/MNN (MNN-LLM; app MnnLlmChat; llm_demo)",
+      "maturidade": "Produção e ativo (MNN Chat app em lojas; organ taobao-mnn no HF com modelos convertidos); forte em otimização energética mobile",
+      "api_exemplo": "Conversão: `python llmexport.py --path <modelo-hf> --export mnn --quant_bit 4 --quant_block 128` → llm.mnn + llm.mnn.weight + llm_config.json (chat template Jinja com bloco de tools). Build: `cmake .. -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true` → `./llm_demo config.json prompt.txt`; Android via app/API MnnLlmChat (backends OpenCL p/ Qualcomm, Vulkan p/ MediaTek, CPU fallback)",
+      "tool_calls_jinja": "parcial",
+      "build_requisitos": "Não lê GGUF (formato próprio .mnn exportado do HF); build CMake com flags MNN_BUILD_LLM etc.; em Flutter exigiria ponte JNI própria (sem plugin Flutter oficial)",
+      "fontes": ["F8", "F16", "F12"]
+    },
+    {
+      "nome": "LiteRT-LM (Google AI Edge) — exige conversão do modelo",
+      "pacote": "github.com/google-ai-edge/LiteRT-LM; Gradle `com.google.ai.edge.litertlm:litertlm-android`; CLI `litert-lm`",
+      "maturidade": "Production-ready na órbita Google (Chrome, Chromebook Plus, Pixel Watch, AI Edge Gallery; v0.16.x); APIs: Python/Kotlin/C++ estáveis, Swift/JS early preview, Flutter Community",
+      "api_exemplo": "Kotlin: carregar `.litertlm` via artefacto Gradle litertlm-android (guia ai.google.dev/edge/litert-lm/android); CLI: `litert-lm run --from-huggingface-repo=litert-community/... --prompt=...`; Tool Use APIs para function calling (FunctionGemma); C API prebuilts desde v0.16.0 p/ bindings próprios; Flutter: guia ai.google.dev/edge/litert-lm/flutter (comunidade)",
+      "tool_calls_jinja": "sim",
+      "build_requisitos": "Formato .litertlm (NÃO lê GGUF — requer conversão do MiniCPM5-2B via pipeline LiteRT-Torch/llmexport equivalente); XNNPack (CPU) e ML Drift (GPU); build de origem com Bazel/CMake (android_ndk_env.bzl)",
+      "fontes": ["F4", "F13", "F14"]
+    },
+    {
+      "nome": "Outro: FFI própria sobre llama.cpp + common/chat.h + minja (padrão llama.rn em Dart)",
+      "pacote": "Plugin Flutter próprio sobre ggml-org/llama.cpp (exemplos em examples/llama.android; camada cpp/ do llama.rn como referência)",
+      "maturidade": "A construir (mais trabalho inicial), mas elimina as duas lacunas dos pacotes existentes: parser de tool calls nativo e build multi-ABI",
+      "api_exemplo": "DynamicLibrary.open('libllama.so') + expor init/generate/abort por FFI; replicar o fluxo do llama.rn: render do chat template com minja, chat.h p/ tool calls (Native handlers + Generic), GBNF p/ forçar JSON do parser XML; streaming por callback/isolate port com Isolate.exit",
+      "tool_calls_jinja": "sim",
+      "build_requisitos": "Android NDK + CMake com toolchain android.toolchain.cmake (configuração documentada em docs/android.md; NDk 28.x + CMake 3.22+ usado com sucesso em builds de terceiros para arm64-v8a E x86_64); empacotar jniLibs por ABI (ABIs filters no Gradle); opcional GGML_OPENCL para Adreno",
+      "fontes": ["F3", "F7", "F17", "F20"]
+    }
+  ],
+  "fontes": [
+    {"ref": "F1", "url": "https://github.com/netdur/llama_cpp_dart", "titulo": "llama_cpp_dart — Dart FFI binding for llama.cpp (README)", "autores": "netdur e contribuidores", "ano": "2026", "veiculo": "GitHub", "tipo": "oficial", "nivel": "A", "lida": "integral"},
+    {"ref": "F2", "url": "https://pub.dev/packages/llama_cpp_dart", "titulo": "pub.dev — llama_cpp_dart (página do pacote, v0.2.2 / 0.9.0-dev.12)", "autores": "netdur", "ano": "2026", "veiculo": "pub.dev", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F3", "url": "https://github.com/mybigday/llama.rn", "titulo": "llama.rn — React Native binding of llama.cpp (README)", "autores": "mybigday / BRICKS e contribuidores", "ano": "2026", "veiculo": "GitHub", "tipo": "oficial", "nivel": "A", "lida": "integral"},
+    {"ref": "F4", "url": "https://github.com/google-ai-edge/LiteRT-LM", "titulo": "LiteRT-LM — Google's on-device LLM orchestration layer (README)", "autores": "Google AI Edge", "ano": "2026", "veiculo": "GitHub", "tipo": "oficial", "nivel": "A", "lida": "integral"},
+    {"ref": "F5", "url": "https://github.com/xuegao-tzx/Fllama", "titulo": "Fllama / FCllama — Flutter binding of llama.cpp via platform channel (README)", "autores": "xuegao-tzx", "ano": "2026", "veiculo": "GitHub", "tipo": "oficial", "nivel": "B", "lida": "integral"},
+    {"ref": "F6", "url": "https://pub.dev/packages/fcllama", "titulo": "pub.dev — fcllama (página do pacote, v0.0.3)", "autores": "xuegao-tzx", "ano": "2025", "veiculo": "pub.dev", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F7", "url": "https://huggingface.co/DiogooTeixeira/llama_guard_3b_q3_k_m.gguf-DumbAI/commit/e22516f32dc181cb242dfe5abc0fa6647088c00d", "titulo": "Espelho do doc 'Function Calling' (common/chat.h) do llama.cpp em commit HF", "autores": "projeto llama.cpp (ggerganov/ggml-org), espelhado por DiogooTeixeira", "ano": "2025", "veiculo": "Hugging Face", "tipo": "documentacao", "nivel": "B", "lida": "trechos"},
+    {"ref": "F8", "url": "https://github.com/alibaba/MNN", "titulo": "MNN — Mobile Neural Network (README; secção MNN-LLM)", "autores": "Alibaba T-Head", "ano": "2026", "veiculo": "GitHub", "tipo": "oficial", "nivel": "A", "lida": "trechos"},
+    {"ref": "F9", "url": "https://arxiv.org/html/2410.03613v2", "titulo": "Performance Study on COTS Mobile Devices (llama.cpp/MLC em telemóveis: mmap, warm-up, memória)", "autores": "vários (arXiv)", "ano": "2025", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F10", "url": "https://arxiv.org/html/2607.05475v1", "titulo": "Is Your NPU Ready for LLMs? Dissecting the Hidden Costs (tabelas llama.cpp/MNN/GENIE em Android)", "autores": "vários (arXiv)", "ano": "2026", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F11", "url": "https://arxiv.org/pdf/2505.00232", "titulo": "ML Drift: GPU acceleration for GenAI on mobile (benchmark OpenCL vs llama.cpp, tok/s por GPU móvel)", "autores": "equipa ML Drift (arXiv)", "ano": "2025", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F12", "url": "https://arxiv.org/html/2506.19884v1", "titulo": "MNN-AECS: Energy Optimization for LLM Decoding on Mobile Devices (comparação MNN vs llama.cpp/MediaPipe)", "autores": "vários (arXiv)", "ano": "2025", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F13", "url": "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct", "titulo": "litert-community/Qwen2.5-1.5B-Instruct (CLI litert-lm; APIs multi-plataforma incl. Flutter)", "autores": "LiteRT Community / Google", "ano": "2026", "veiculo": "Hugging Face", "tipo": "documentacao", "nivel": "B", "lida": "trechos"},
+    {"ref": "F14", "url": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm", "titulo": "litert-community/gemma-4-E2B-it-litert-lm (formato .litertlm, XNNPack/ML Drift, function calling)", "autores": "LiteRT Community / Google", "ano": "2026", "veiculo": "Hugging Face", "tipo": "documentacao", "nivel": "B", "lida": "trechos"},
+    {"ref": "F15", "url": "https://huggingface.co/unsloth/GLM-4.5-Air-GGUF/discussions/9", "titulo": "Discussão: tool calls + template Jinja corrigido para llama.cpp (erros do minja)", "autores": "comunidade Unsloth/HF", "ano": "2025", "veiculo": "Hugging Face", "tipo": "forum", "nivel": "C", "lida": "trechos"},
+    {"ref": "F16", "url": "https://huggingface.co/darkmaniac7/Dolphin3.0-Llama3.1-8B-MNN", "titulo": "Modelo MNN para app TokForge (llm_config.json com Jinja template; llmexport; tok/s em Android)", "autores": "darkmaniac7 (conversão)", "ano": "2026", "veiculo": "Hugging Face", "tipo": "forum", "nivel": "C", "lida": "trechos"},
+    {"ref": "F17", "url": "https://huggingface.co/livadies/Bonsai-27B-Android-Local", "titulo": "Build Android de llama.cpp (SDK 36, NDK 28.2.13676358, CMake 3.22.1, ABI arm64-v8a + x86_64, AVD x86_64)", "autores": "livadies", "ano": "2026", "veiculo": "Hugging Face", "tipo": "forum", "nivel": "C", "lida": "trechos"},
+    {"ref": "F18", "url": "https://arxiv.org/html/2605.08195v1", "titulo": "ExecuTorch Vulkan vs llama.cpp em Android (shaders Adreno; prefill/decode por GPU)", "autores": "vários (arXiv)", "ano": "2026", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F19", "url": "https://arxiv.org/html/2405.12107v1", "titulo": "Imp: Highly Capable Large Multimodal Models for Mobile Devices (~13 tok/s 3B em Snapdragon via llama.cpp)", "autores": "vários (arXiv)", "ano": "2024", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F20", "url": "https://huggingface.co/datasets/echodict/llama.cpp/blob/main/docs/android.md", "titulo": "llama.cpp docs/android.md (espelho): cross-compile NDK e binding examples/llama.android", "autores": "projeto llama.cpp (espelhado por echodict)", "ano": "2026", "veiculo": "Hugging Face", "tipo": "documentacao", "nivel": "B", "lida": "trechos"},
+    {"ref": "F21", "url": "https://arxiv.org/pdf/2609.01338", "titulo": "On-Device LLM Memory Management under Multitasking (mzCache; alocação monolítica do llama.cpp)", "autores": "vários (arXiv)", "ano": "2026", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F22", "url": "https://huggingface.co/Moore2877/Qwen-Fixed-Chat-Templates-llamacpp", "titulo": "Qwen-Fixed-Chat-Templates-llamacpp (tool_call_format via --chat-template-kwargs; autoparser)", "autores": "Moore2877 (comunidade)", "ano": "2026", "veiculo": "Hugging Face", "tipo": "forum", "nivel": "C", "lida": "trechos"}
+  ],
+  "contradicoes": [
+    {
+      "tema": "API pública do llama_cpp_dart",
+      "posicoes": [
+        {"fonte": "F2", "diz": "A página pub.dev (v0.2.2) documenta LlamaLoad/LlamaParent com formato ChatMLFormat() e sendPrompt()."},
+        {"fonte": "F1", "diz": "O README do repo (0.9.x) documenta LlamaEngine/EngineSession/EngineChat com Stream<GenerationEvent> e diz que a 0.9.x é um rewrite que ainda pode quebrar antes da 1.0."}
+      ],
+      "explicacao_provavel": "data"
+    },
+    {
+      "tema": "Versão do NDK exigida pelo fcllama",
+      "posicoes": [
+        {"fonte": "F5", "diz": "README do repo: 'You need install cmake 3.31.0、android sdk 35 and ndk 28.0.12674087'."},
+        {"fonte": "F6", "diz": "README na pub.dev: 'You need install cmake 3.31.0、android sdk 35 and ndk 28.0.12433566'."}
+      ],
+      "explicacao_provavel": "data"
+    },
+    {
+      "tema": "Tool calling com Jinja no llama.cpp: suporte universal vs robustez prática",
+      "posicoes": [
+        {"fonte": "F7", "diz": "Function calling é 'supported for all models' com handlers Native e fallback Generic (chat.h usado com --jinja)."},
+        {"fonte": "F15", "diz": "Templates com tools de modelos reais rebentam no minja (ex.: 'Unknown (built-in) filter items for type String') e exigem --chat-template-file corrigido/PRs upstream."}
+      ],
+      "explicacao_provavel": "definicao"
+    },
+    {
+      "tema": "GPU (Vulkan/OpenCL) vs CPU do llama.cpp em Android",
+      "posicoes": [
+        {"fonte": "F18", "diz": "O ExecuTorch Vulkan supera o llama.cpp em prefill no Pixel 9 XL porque o llama.cpp só tem compute shaders otimizados para Adreno."},
+        {"fonte": "F11", "diz": "Em GPUs Adreno/Immortalis o stack OpenCL móvel atinge 12–17 tok/s de decode em 3B q8 e prefill de 500–980 tok/s, superior a execução CPU equivalente em vários aparelhos."}
+      ],
+      "explicacao_provavel": "populacao"
+    }
+  ],
+  "lacunas": [
+    "ABIs exatas dos jniLibs pré-compilados do llama.rn (incluem x86_64 para emulador?) não confirmadas na documentação lida.",
+    "Não há benchmarks públicos do próprio llama_cpp_dart ou fcllama em Android (tok/s, RAM, latência de 1º token) — os números conhecidos são de llama.cpp 'puro'.",
+    "Não foi verificado se o pin de llama.cpp do llama_cpp_dart (tag b10182) suporta a arquitetura MiniCPM5-2B e o seu tokenizer sem patches.",
+    "Desenho da camada de tool calls em Flutter: API de tools inexistente no llama_cpp_dart — falta dimensionar o custo de portar chat.h/minja vs parser XML em pós-processamento.",
+    "Estado real do suporte a function calling no runtime MNN (para além do chat template com tools no llm_config.json).",
+    "Comportamento de StopUserAbort/stopCompletion durante prefill longo e em caso de OOM do Android low-memory killer com mmap de ~2,5 GB.",
+    "Se o fcllama despacha a inferência para thread nativa própria (platform channels executam no main thread Android por omissão) — relevante para a regra 'nunca inferência na UI thread'.",
+    "Caminho de conversão concreto MiniCPM5-2B → .litertlm (LiteRT-Torch) e maturidade real da API Flutter Community do LiteRT-LM."
+  ],
+  "novas_perguntas": [
+    {"pergunta": "Qual o custo de manter uma ponte FFI própria sobre common/chat.h + minja (tool calls nativos) vs extrair tool calls do texto em pós-processamento com o parser XML (Q1)?", "origem": "aprofundamento", "prioridade": "alta", "porque": "É a decisão que separa as duas arquiteturas candidatas da app e define o plano de trabalho do spike Android."},
+    {"pergunta": "A tag b10182 do llama.cpp (pin do llama_cpp_dart) carrega e infere o MiniCPM5-2B Q4 sem patches de arquitetura/tokenizer?", "origem": "lacuna", "prioridade": "alta", "porque": "Se não, é preciso um fork/patch e o plano de build muda completamente."},
+    {"pergunta": "Medir tok/s, RAM e TTFT do MiniCPM5-2B Q4 em 3 telemóveis Android reais (gama alta/média/baixa) e em emulador x86_64, com e sem OpenCL.", "origem": "quantificacao", "prioridade": "alta", "porque": "Os números disponíveis são de outros modelos 1,5–3B; a decisão de threads/contexto depende de medições do modelo alvo."},
+    {"pergunta": "Existe algum wrapper method-channel pronto para usar o llama.rn (ou o seu cpp/) a partir de Flutter, ou há que escrever a ponte JNI?", "origem": "lacuna", "prioridade": "media", "porque": "Um wrapper existente mudaria a recomendação primária (tool calls prontos a usar)."},
+    {"pergunta": "Estratégia de memória em Android: prefetched context/session save-load e comportamento sob memory pressure com pesos ~2,5 GB mmap (evitar OOM tudo-ou-nada).", "origem": "aprofundamento", "prioridade": "media", "porque": "O llama.cpp aloca monoliticamente e o Android mata apps agressivamente; define limites de n_ctx e políticas de release."},
+    {"pergunta": "Como o LiteRT-LM expõe function calling na API Flutter e qual o pipeline de conversão de um modelo HF (MiniCPM5-2B) para .litertlm?", "origem": "atualidade", "prioridade": "baixa", "porque": "Relevante se se optar por abandonar GGUF no futuro em troca do suporte oficial Google a tool calls."},
+    {"pergunta": "A implementação do parser XML de tool calls (Q1) precisa de deteção incremental em streaming — comparar com o output incremental do llama.rn ('tool_calls' acumulado no callback).", "origem": "contra-evidencia", "prioridade": "media", "porque": "O fallback GENERIC do llama.cpp emite JSON inteiro no fim; o formato XML do MiniCPM pode permitir deteção durante o streaming e antecipar a execução da tool."}
+  ],
+  "fontes_nao_usadas": [
+    {"url": "https://discuss.huggingface.co/t/what-is-the-best-architecture-for-integrating-local-llm-inference-and-rag-on-mobile-devices/174270", "porque_pode_importar": "Arquitetura recomendada Flutter: worker isolate → FFI → core nativo, e referência a issues reais de integração mobile (SPM/ObjC++, crashes ONNX Runtime) — útil para o desenho de threads."},
+    {"url": "https://huggingface.co/qualcomm/Llama-v3.2-3B-Instruct", "porque_pode_importar": "Tabela de tok/s do runtime GENIE da Qualcomm para Llama 3.2 3B (18–42 tok/s) — enquadramento do teto possível via NPU, fora do âmbito GGUF/llama.cpp."},
+    {"url": "https://arxiv.org/html/2409.00088v1", "porque_pode_importar": "Revisão 'On-Device Language Models' com descrição comparativa de llama.cpp vs MNN (backends, fine-tuning) — contexto geral já coberto por fontes primárias."},
+    {"url": "https://huggingface.co/edbuildingstuff/unhinged-horoscopes", "porque_pode_importar": "Caso real de app Flutter + llamadart (FFI llama.cpp) em Android com download/cache de GGUF e geração <3 s — evidência do padrão de integração (descarga do modelo no primeiro launch)."},
+    {"url": "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/discussions/10", "porque_pode_importar": "Workarounds concretos de chat template com tools (--chat-template-file, patch de filtros minja) — complementa F15 sobre a fragilidade do Jinja com tools."},
+    {"url": "https://huggingface.co/google/gemma-4-31B-it/discussions/27", "porque_pode_importar": "Recomendações de deployment mobile Google (AI Edge Gallery, ML Kit GenAI, LiteRT-LM vs MediaPipe em iOS) — útil para o roadmap iOS da app."}
+  ],
+  "consultas": [
+    "llama.cpp Flutter Android FFI plugin GGUF",
+    "llama_cpp_dart pub.dev package Flutter LLM",
+    "llama.rn android react native llama.cpp GGUF library",
+    "llama.cpp jinja chat template tool call parser mobile",
+    "Fllama Flutter plugin llama.cpp pub.dev",
+    "LiteRT-LM Android Google AI Edge on-device LLM inference API",
+    "MNN-LLM Android alibaba on-device LLM engine",
+    "llama.cpp android benchmark tokens per second 3B phone Snapdragon",
+    "lib_llama_cpp dart ffi plugin pub.dev llama.cpp",
+    "llama.rn tool calls support release mybigday",
+    "llama.cpp common chat tool call parser jinja server common.h",
+    "flutter llama.cpp plugin broken android crash segfault issue",
+    "LiteRT-LM function calling tool use Android API example",
+    "llama.cpp Vulkan Android backend Adreno performance mmap memory",
+    "MNN Chat Android MnnLlmChat function calling tool call MNN-LLM user guide",
+    "llama_cpp_dart issue crash slow android github netdur"
+  ],
+  "alertas_seguranca": [
+    {"url": "https://huggingface.co/Wizcoderr/qwen-flutter-fused", "sinais": ["escudo: marcador-de-papel (marcador de papel/fragmento injetado no texto)"], "acao": "descartada"},
+    {"url": "https://huggingface.co/stepfun-ai/Step-3.5-Flash-GGUF-Q4_K_S/discussions/12", "sinais": ["escudo: marcador-de-papel"], "acao": "usada-so-com-corroboracao"},
+    {"url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/commit/9e94a4a3f105bc9f14b0e427b452e413524e506b", "sinais": ["escudo: ocultar-do-utilizador (marcador de conteúdo oculto)"], "acao": "usada-so-com-corroboracao"},
+    {"url": "https://huggingface.co/jothamhernandez/jothamhernandezphtvet-slm/blame/main/INTEGRATION.md", "sinais": ["escudo: marcador-de-papel"], "acao": "descartada"}
+  ]
+}

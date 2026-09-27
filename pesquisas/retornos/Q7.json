@@ -1,0 +1,336 @@
+{
+  "id": "Q7",
+  "estado": "respondida",
+  "confianca": "moderada",
+  "resposta": "Os frameworks convergem em guardrails determinísticos de loop: teto de passos/turnos com exceção ou saída controlada — OpenAI Agents SDK `max_turns` → `MaxTurnsExceeded` [F1], LangGraph `recursion_limit` → `GraphRecursionError` (default 25) [F2][F3], LangChain `max_iterations=15` [F6] e smolagents `max_steps=20` com `_handle_max_steps_reached` [F7]. Para além do teto, a prática documentada empilha camadas: budget de tokens/wall-clock [F9][F19], deteção de ciclos por hash de (ferramenta, argumentos canónicos) com janela deslizante [F9][F10], dedup de tool calls idênticas [F20], validação rígida de schema dos argumentos (ex.: `strict: true` da Anthropic) [F4], timeout por ferramenta/passo [F1][F17] e truncagem dos resultados de ferramentas [F8][F18]. Modelos 2–3B são especialmente propensos a repetir a mesma chamada após um erro ou a desistir [F13] e a perder estado em multi-turno [F13], pelo que o enforcement tem de ser em runtime — prompt é apenas orientação [F21] — compensado por gramática/JSON schema na descodificação [F11], sabendo que constrained decoding tem overhead e pode degradar a tarefa [F12]. Para o loop local do MiniCPM5-2B recomenda-se uma máquina de estados determinística: temperatura 0 + saída JSON gramatical, max_steps 6–10 e budget de tokens, validação de schema com no máximo uma re-jeição, hash (tool,args) que corta na 2.ª repetição, timeout e truncagem por ferramenta, resposta final forçada (`final_answer`) ao esgotar orçamento e fallback fixo, medindo também as paragens prematuras [F14][F15].",
+  "afirmacoes": [
+    {
+      "texto": "O OpenAI Agents SDK termina o loop apenas com saída final (texto do tipo desejado sem tool calls); caso contrário corre até max_turns e levanta MaxTurnsExceeded, e max_turns=None desativa o limite.",
+      "fontes": ["F1"],
+      "citacao_literal": "If we exceed the `max_turns` passed, we raise a `MaxTurnsExceeded` exception. Pass `max_turns=None` to disable this turn limit.",
+      "central": true
+    },
+    {
+      "texto": "O OpenAI Agents SDK permite devolver uma saída final controlada em vez de rebentar a execução, via error_handlers com as chaves 'max_turns', 'model_refusal' e 'invalid_final_output'.",
+      "fontes": ["F1"],
+      "citacao_literal": "The supported keys are `\"max_turns\"`, `\"model_refusal\"`, and `\"invalid_final_output\"`. Use them when you want to return a controlled final output instead of ending the run with the corresponding error.",
+      "central": true
+    },
+    {
+      "texto": "O LangGraph conta cada nó executado e levanta GraphRecursionError quando ultrapassa o recursion_limit, cuja predefinição é 25 passos; o limite fixa-se no config de invoke()/stream().",
+      "fontes": ["F2", "F3"],
+      "citacao_literal": "The recursion_limit cap sets how many steps a graph can take before it raises GraphRecursionError. The default is 25 steps.",
+      "central": true
+    },
+    {
+      "texto": "A recomendação documentada para ciclos em LangGraph é usar três camadas: saídas baseadas em estado (contadores/limiares de qualidade), recursion_limit como crash guard e tratamento de GraphRecursionError com fallback amigável.",
+      "fontes": ["F3"],
+      "citacao_literal": "Guard yourself with three layers: 1. State-based exits — counters or quality bars in your routing logic 2. `recursion_limit` — a hard cap at call time as a crash guard",
+      "central": true
+    },
+    {
+      "texto": "O AgentExecutor do LangChain tem max_iterations=15 por omissão, avisa explicitamente que None pode causar loop infinito, e tem ainda max_execution_time (wall-clock).",
+      "fontes": ["F6"],
+      "citacao_literal": "The maximum number of steps to take before ending the execution loop. Setting to 'None' could lead to an infinite loop.",
+      "central": true
+    },
+    {
+      "texto": "O LangChain distingue dois early_stopping_method: 'force' devolve mensagem de limite atingido; 'generate' faz uma última chamada ao LLM para gerar resposta final a partir dos passos já acumulados (força de resposta final).",
+      "fontes": ["F6"],
+      "citacao_literal": "`generate` calls the agent's LLM Chain one final time to generate a final answer based on the previous steps.",
+      "central": true
+    },
+    {
+      "texto": "O smolagents termina quando a ferramenta final_answer é chamada ou quando atinge max_steps (default 20), altura em que _handle_max_steps_reached produz uma resposta final de recurso.",
+      "fontes": ["F7"],
+      "citacao_literal": "if not returned_final_answer and self.step_number == max_steps + 1: final_answer = self._handle_max_steps_reached(task)",
+      "central": true
+    },
+    {
+      "texto": "O smolagens/smolagents suporta final_answer_checks: lista de funções de validação executada antes de aceitar a resposta final.",
+      "fontes": ["F7"],
+      "citacao_literal": "final_answer_checks (`list[Callable]`, \\optional): List of validation functions to run before accepting a final answer.",
+      "central": false
+    },
+    {
+      "texto": "O loop agêntico canónico da Anthropic é um while sobre stop_reason=='tool_use', saindo em qualquer outro stop_reason (end_turn, max_tokens, stop_sequence, refusal) — a aplicação deve tratar cada um desses casos de saída.",
+      "fontes": ["F5"],
+      "citacao_literal": "In practice this reads as: while `stop_reason == \"tool_use\"`, execute the tools and continue the conversation. The loop exits on any other stop reason",
+      "central": true
+    },
+    {
+      "texto": "A documentação da Anthropic garante conformidade de schema nas tool calls via strict:true nas definições de ferramenta.",
+      "fontes": ["F4"],
+      "citacao_literal": "Add `strict: true` to your custom tool definitions to ensure Claude's tool calls always match your schema exactly.",
+      "central": true
+    },
+    {
+      "texto": "Resultados de ferramentas grandes dominam a janela de contexto e são reenviados em todos os pedidos seguintes; o Pydantic AI Harness tem ToolOutputLimits com modos Truncate, Spill e Summarize para os reduzir uma única vez.",
+      "fontes": ["F8"],
+      "citacao_literal": "A tool can return a payload large enough to dominate the context window. Tool returns persist in history, so an oversized one is re-sent on every later request.",
+      "central": true
+    },
+    {
+      "texto": "A deteção de ciclos por fingerprint de estado (hash de objetivo+plano+ferramenta+argumentos normalizados+factos conhecidos) permite parar quando o fingerprint repete ou muda sem acrescentar factos.",
+      "fontes": ["F9"],
+      "citacao_literal": "fingerprint = hash(goal + normalized_plan + last_tool_name + normalized_tool_args + retrieved_doc_ids + known_facts)",
+      "central": true
+    },
+    {
+      "texto": "A proposta da comunidade crewAI para guardrail determinístico faz hash da trajetória (agent_role, tool_name, canonical_arguments) e levanta exceção local quando a mesma trajetória repete numa janela deslizante, antes da chamada de API.",
+      "fontes": ["F10"],
+      "citacao_literal": "deterministically hash the trajectory state: `(agent_role, tool_name, canonical_arguments)`. If the exact same trajectory repeats within a sliding window, the guardrail instantly raises an exception",
+      "central": true
+    },
+    {
+      "texto": "Um system prompt que pede para concluir é apenas orientação; para prevenção de loops o enforcement em runtime é a proteção segura.",
+      "fontes": ["F21"],
+      "citacao_literal": "a system prompt can help guide the agent's behaviour, but that is still guidance rather than hard enforcement. So for loop prevention, a runtime guardrail would be the safer protection.",
+      "central": true
+    },
+    {
+      "texto": "Modelos pequenos, quando uma ferramenta devolve erro ou resultado vazio, tendem a repetir a mesma chamada ou a desistir, em vez de se adaptarem como modelos fronteira.",
+      "fontes": ["F13"],
+      "citacao_literal": "When a tool returns an error or an empty result, small models tend to either retry identically or give up. Frontier models adapt.",
+      "central": true
+    },
+    {
+      "texto": "Em BFCL v4, os modelos pequenos falham sobretudo em manter estado multi-turno (lembrar o que já funcionou e não re-chamar) e em recusar corretamente quando nenhuma ferramenta se aplica.",
+      "fontes": ["F13"],
+      "citacao_literal": "Holding a plan across six calls, remembering what already succeeded, and not re-calling something is where BFCL v4's multi-turn scores collapse.",
+      "central": true
+    },
+    {
+      "texto": "A descodificação constrangida por gramática melhora a fiabilidade de modelos pequenos em tarefas agênticas: pass rate médio de 62.5% para 75.2% em 13 modelos, com Qwen3-0.6B a subir de 16.7% para 59.2%.",
+      "fontes": ["F11"],
+      "citacao_literal": "lifted the average pass rate across 13 models from 62.5% to 75.2% on 299 tasks. The strongest improvement occurred on Qwen3-0.6B, where the pass rate rose from 16.7% to 59.2%",
+      "central": true
+    },
+    {
+      "texto": "A constrained decoding não é isenta de custos: mesmo otimizada tem overhead por inferência e, nalguns modelos, degrada o desempenho da tarefa.",
+      "fontes": ["F12"],
+      "citacao_literal": "We show that even optimized constrained decoding incurs substantial per-inference overhead and, in some models, degrades task performance.",
+      "central": true
+    },
+    {
+      "texto": "Em agentes locais, a execução iterativa incluindo loops de retry após falha amplifica consumo de tokens, latência e bateria, frequentemente sem resultado útil — evidência direta para limitar retries.",
+      "fontes": ["F15"],
+      "citacao_literal": "the iterative execution, including failure retry loops, substantially amplifies token consumption, latency, and battery drain, often without producing a successful task outcome.",
+      "central": true
+    },
+    {
+      "texto": "Apertar a regra de paragem (teto de passos ou prompt de conclusão mais agressivo) converte execuções que não paravam em paragens prematuras; ambas as taxas devem ser medidas na mesma suite.",
+      "fontes": ["F14"],
+      "citacao_literal": "Tighten the stop rule with a hard step cap or a sharper completion prompt and some non-stopping runs convert into early ones; loosen it to recover the early stops and you pay in tokens",
+      "central": true
+    },
+    {
+      "texto": "A LlamaIndex documenta explicitamente que loops exigem cuidado com o tempo de execução e usa timeout (120s no exemplo) no workflow de function calling.",
+      "fontes": ["F17"],
+      "citacao_literal": "NOTE: With loops, we need to be mindful of runtime. Here, we set a timeout of 120s.",
+      "central": false
+    },
+    {
+      "texto": "Os budgets por execução recomendados incluem max steps, max tool calls, max input/output/total tokens, wall-clock, max retries por ferramenta e máx. de fingerprints de ação repetida.",
+      "fontes": ["F9"],
+      "citacao_literal": "Every agent run should have budgets: max steps, max tool calls, max input tokens, max output tokens, max total tokens, max wall-clock time, max retries per tool, max repeated action fingerprints",
+      "central": true
+    },
+    {
+      "texto": "A dedup de tool calls — mesma função com os mesmos argumentos duas vezes seguidas — é apontada como sinal inequívoco de loop a interceptar no próprio loop do agente.",
+      "fontes": ["F20"],
+      "citacao_literal": "implement tool call deduplication—if the LLM calls the same function with the same arguments twice in a row, something's wrong.",
+      "central": true
+    },
+    {
+      "texto": "Os hosts truncam resultados de ferramentas em limites distintos e por vezes ocultos (OpenAI Codex: 10 KiB ou 256 linhas, head-and-tail), pelo que a truncagem deve ser explícita e registada.",
+      "fontes": ["F18"],
+      "citacao_literal": "OpenAI Codex truncates tool outputs at hardcoded limits of 10 KiB or 256 lines, head-and-tail. Different host, different cliff.",
+      "central": false
+    }
+  ],
+  "guardrails": [
+    {
+      "guardrail": "Máximo de passos/iterações do loop (teto duro)",
+      "como_implementar": "Contador determinístico no próprio loop (ex.: 6–10 passos para um agente de ferramenta em telemóvel); ao atingir o teto, saltar para o guardrail de resposta final em vez de continuar. Contar cada iteração LLM+ferramenta como 1 passo.",
+      "evidencia": "OpenAI Agents SDK: max_turns → MaxTurnsExceeded [F1]; LangGraph: recursion_limit (default 25) → GraphRecursionError [F2][F3]; LangChain AgentExecutor: max_iterations=15, com aviso de que None pode causar loop infinito [F6]; smolagents: max_steps=20 com _handle_max_steps_reached [F7]. Todos os grandes frameworks têm-no como mecanismo central.",
+      "fontes": ["F1", "F2", "F3", "F6", "F7"]
+    },
+    {
+      "guardrail": "Budget de tokens (input/output/total) por execução",
+      "como_implementar": "Somar tokens de cada chamada ao modelo e ao tamanho dos resultados de ferramentas; cortar para fallback quando o total ultrapassar o orçamento, mesmo sem atingir o teto de passos (um passo pode consumir milhares de tokens).",
+      "evidencia": "Lista de budgets de uma execução (max input/output/total tokens, max spend) [F9]; limites de custo/uso que bloqueiam 'agent loops' e 'runaway workloads' [F19]; amplificação de consumo por loops de retry [F15].",
+      "fontes": ["F9", "F19", "F15"]
+    },
+    {
+      "guardrail": "Deteção de ciclos por hash de tool call / fingerprint de estado",
+      "como_implementar": "hash(nome_ferramenta + argumentos canónicos [JSON com chaves ordenadas]) + hash do estado (objetivo, factos conhecidos, IDs de docs já vistos); manter janela deslizante (ex.: últimas 4–8 ações); se o fingerprint repetir ou o estado não ganhar factos novos, interromper ou forçar conclusão.",
+      "evidencia": "Fingerprint de estado e regra 'se repete ou muda sem acrescentar factos, abranda ou para' [F9]; proposta crewAI de hash (agent_role, tool_name, canonical_arguments) com janela deslizante que bloqueia antes da chamada de API (~480ns) [F10].",
+      "fontes": ["F9", "F10"]
+    },
+    {
+      "guardrail": "Limite de tool calls consecutivas idênticas (dedup)",
+      "como_implementar": "Comparar a ação atual com a(s) anterior(es); se a mesma ferramenta+argumentos ocorrer 2 vezes seguidas, não executar: devolver erro estruturado ('repetida — escolhe outra abordagem ou conclui') e, na 3.ª, forçar resposta final.",
+      "evidencia": "Dedup de tool calls idênticas como sinal de loop [F20]; hash de trajetória repetida na janela deslizante [F10]; sinais de loop incluem 'same error returned by tool multiple times' e 'repeated tool name with similar arguments' [F9].",
+      "fontes": ["F20", "F10", "F9"]
+    },
+    {
+      "guardrail": "Validação de schema dos argumentos antes de executar",
+      "como_implementar": "JSON Schema rígido com tipos, enums e campos obrigatórios; validar com biblioteca (ex.: jsonschema/Pydantic) e só executar se passar; em falha, devolver erro de validação determinístico ao modelo com no máximo 1 tentativa de correção antes de desistir. No nível do modelo, strict:true/gramática garante conformidade sintática.",
+      "evidencia": "Anthropic: 'strict: true' garante que as tool calls correspondem exatamente ao schema [F4]; camada de tool call do guardrail inclui 'schema validation' [F9]; OpenAI SDK suporta pre_approval_tool_input_guardrails na execução de ferramentas [F1].",
+      "fontes": ["F4", "F9", "F1"]
+    },
+    {
+      "guardrail": "Timeout por passo e por ferramenta",
+      "como_implementar": "asyncio.wait_for (ou equivalente) por chamada de ferramenta (ex.: 2–5s em Android) e timeout global do passo LLM; decidir se timeout vira 'erro como resultado' (o modelo continua) ou falha da execução; timeout global do run (ex.: 30–120s).",
+      "evidencia": "OpenAI SDK: ModelSettings.timeout → ModelTimeoutError e configuração de timeout por ferramenta com error_as_result/raise_exception [F1]; LlamaIndex: 'With loops, we need to be mindful of runtime' com timeout=120 [F17]; LangChain: max_execution_time [F6]; exemplos de execução de ferramenta com asyncio.wait_for(timeout=30) [F20].",
+      "fontes": ["F1", "F17", "F6", "F20"]
+    },
+    {
+      "guardrail": "Truncagem/limite de tamanho dos resultados de ferramentas",
+      "como_implementar": "Orçamento fixo de caracteres por resultado (ex.: 2–16 KB) com truncagem explícita e marcador '…[truncado N bytes]'; políticas por banda (Truncate / Spill com handle+preview / Summarize); registar sempre o flag de truncagem para o modelo não inferir que não há dados.",
+      "evidencia": "Pydantic AI Harness: ToolOutputLimits com Truncate/Spill/Summarize porque o resultado persiste no histórico e é reenviado [F8]; limites de truncagem variam por host (Codex 10 KiB/256 linhas) e cortes silenciosos quebram agentes [F18].",
+      "fontes": ["F8", "F18"]
+    },
+    {
+      "guardrail": "Força de resposta final (prompt-level + mecânica)",
+      "como_implementar": "Duas vias combinadas: (1) instrução de sistema explícita 'após N passos ou quando tiveres informação suficiente, responde em formato FINAL_ANSWER: …' com few-shot de exemplo; (2) mecanismo: ao esgotar orçamento, fazer UMA última chamada com instrução forçada de resposta (ou invocar ferramenta final_answer), sem tools disponíveis.",
+      "evidencia": "LangChain early_stopping_method='generate' dá uma última chamada ao LLM para gerar resposta final [F6]; smolagents termina com ferramenta final_answer e valida via final_answer_checks [F7]; OpenAI error_handlers['max_turns'] devolve saída final controlada [F1]. Atenção: prompt sozinho é orientação, não enforcement [F21].",
+      "fontes": ["F6", "F7", "F1", "F21"]
+    },
+    {
+      "guardrail": "Mecanismo de fallback determinístico no esgotamento",
+      "como_implementar": "try/except em torno do loop: em MaxTurnsExceeded/GraphRecursionError/timeout/erro de parsing, devolver resposta estática curta (com o que foi apurado, se existir) e nunca rebentar a UI. Guardar o estado intermédio para diagnóstico.",
+      "evidencia": "Padrão LangGraph: try/except GraphRecursionError com mensagem amigável ao utilizador como terceira camada [F3]; OpenAI SDK: error_handlers para 'max_turns', 'model_refusal', 'invalid_final_output' [F1].",
+      "fontes": ["F3", "F1"]
+    },
+    {
+      "guardrail": "Exits baseados em estado / verificação de progresso",
+      "como_implementar": "Roteador com contadores e limiares de qualidade no próprio estado (ex.: 'todos os campos do payload preenchidos?', 'cobertura do plano ≥ X?'); parar por regra de negócio antes do teto. Sinais de não-progresso: nenhuma factos novos, plano repetido, confiança estagnada, gasto a subir sem mudança de estado.",
+      "evidencia": "Camada 1 de LangGraph: 'State-based exits — counters or quality bars in your routing logic' [F3]; sinais de não-progresso e regra do fingerprint [F9]; condições de terminação devem depender do tipo de tarefa, não de step limits opacos [F14].",
+      "fontes": ["F3", "F9", "F14"]
+    },
+    {
+      "guardrail": "Sinal de saída explícito como ferramenta (exit-early / final_answer)",
+      "como_implementar": "Dar ao modelo uma ferramenta 'concluir'/'exit' que encerra o loop de forma canónica; em alternativa, semântica de stop_reason (tool_use vs end_turn). Para modelos pequenos, treinar o padrão com few-shot estrito de exemplo final.",
+      "evidencia": "smolagents: termina quando final_answer é chamado [F7]; AgentStop: 'Exit early as a tool' — o agente sai por tool call, com ganhos de energia/utilidade já ao 5.º passo, incluindo Qwen3-1.7B/4B [F15]; Anthropic: saída do loop por stop_reason [F5].",
+      "fontes": ["F7", "F15", "F5"]
+    },
+    {
+      "guardrail": "Erros de ferramenta não ambíguos + limite de retries",
+      "como_implementar": "Devolver sempre resultado estruturado com status explícito (ok / no_results / error + motivo curto), nunca vazio nem erro genérico inline; limitar retries por ferramenta (ex.: 1–2) e, ao repetir a mesma chamada com o mesmo erro, mudar de estratégia ou concluir — crítico para modelos 2–3B que repetem a chamada idêntica.",
+      "evidencia": "Modelos pequenos 'retry identically or give up' quando a ferramenta devolve erro/vazio [F13]; budgets recomendados incluem 'max retries per tool' e 'same error returned by tool multiple times' como sinal de loop [F9]; 'Make tool returns unambiguous — success and failure both crisp' [F19].",
+      "fontes": ["F13", "F9", "F19"]
+    },
+    {
+      "guardrail": "Descodificação constrangida (gramática/JSON schema) para modelos 2–3B",
+      "como_implementar": "Gramática JSON/GBNF (llama.cpp grammars, vLLM guided_json, llguidance) para o tool call; schemas simples, com enums e campos mínimos; medir o custo de latência e validar que a tarefa não degrada.",
+      "evidencia": "NVIDIA: gramáticas Lark + llguidance elevaram pass rate médio de 62.5% para 75.2% em 13 modelos pequenos, reduzindo erros de sintaxe e terminação precoce [F11]; contraponto: constrained decoding tem overhead e pode degradar desempenho da tarefa [F12].",
+      "fontes": ["F11", "F12"]
+    }
+  ],
+  "fontes": [
+    {"ref": "F1", "url": "https://openai.github.io/openai-agents-python/running_agents", "titulo": "Runner lifecycle and configuration — OpenAI Agents SDK", "autores": "OpenAI", "ano": "2026", "veiculo": "openai.github.io (documentação oficial)", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F2", "url": "https://reference.langchain.com/python/langgraph/errors/GraphRecursionError", "titulo": "GraphRecursionError | langgraph | LangChain Reference", "autores": "LangChain", "ano": "2026", "veiculo": "reference.langchain.com", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F3", "url": "https://machinelearningplus.com/gen-ai/langgraph-cycles-recursion-limits-agent-loops", "titulo": "LangGraph Cycles & Recursion Limits: Control Agent Loops", "autores": "MachineLearningPlus (equipa editorial)", "ano": "2026", "veiculo": "machinelearningplus.com", "tipo": "blogue", "nivel": "C", "lida": "trechos"},
+    {"ref": "F4", "url": "https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview", "titulo": "Tool use with Claude — Claude Platform Docs", "autores": "Anthropic", "ano": "2026", "veiculo": "docs.anthropic.com", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F5", "url": "https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/how-tool-use-works", "titulo": "How tool use works — Claude Platform Docs", "autores": "Anthropic", "ano": "2026", "veiculo": "docs.anthropic.com", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F6", "url": "https://sj-langchain.readthedocs.io/en/latest/_modules/langchain/agents/agent.html", "titulo": "langchain.agents.agent — AgentExecutor (código fonte: max_iterations, max_execution_time, early_stopping_method)", "autores": "LangChain (código original; mirror readthedocs)", "ano": "2023", "veiculo": "readthedocs (fonte do pacote langchain 0.0.249)", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F7", "url": "https://github.com/huggingface/smolagents/blob/main/src/smolagents/agents.py", "titulo": "smolagents/src/smolagents/agents.py (max_steps, _handle_max_steps_reached, final_answer_checks)", "autores": "Hugging Face (equipa smolagents)", "ano": "2026", "veiculo": "GitHub (repositório oficial)", "tipo": "oficial", "nivel": "A", "lida": "trechos"},
+    {"ref": "F8", "url": "https://pydantic.dev/docs/ai/harness/tool-output-limits", "titulo": "Tool Output Limits | Pydantic Docs (Pydantic AI Harness)", "autores": "Pydantic", "ano": "2026", "veiculo": "pydantic.dev", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F9", "url": "https://acethecloud.com/blog/agent-guardrails-infinite-loop-detection", "titulo": "Agents Need Seatbelts: Guardrails and Infinite-Loop Detection for Tool-Using AI", "autores": "Ace The Cloud (autoria não identificada)", "ano": "2026", "veiculo": "acethecloud.com", "tipo": "blogue", "nivel": "C", "lida": "trechos"},
+    {"ref": "F10", "url": "https://github.com/crewAIInc/crewAI/issues/6414", "titulo": "[FEATURE] Native deterministic guardrail to prevent infinite agent delegation and tool loops · crewAI #6414", "autores": "comunidade crewAI (autor do issue)", "ano": "2026", "veiculo": "GitHub Issues", "tipo": "forum", "nivel": "C", "lida": "trechos"},
+    {"ref": "F11", "url": "https://developer.nvidia.com/blog/improving-bash-generation-in-small-language-models-with-grammar-constrained-decoding", "titulo": "Improving Bash Generation in Small Language Models with Grammar-Constrained Decoding", "autores": "NVIDIA AI Red Team", "ano": "2026", "veiculo": "NVIDIA Technical Blog", "tipo": "blogue", "nivel": "B", "lida": "trechos"},
+    {"ref": "F12", "url": "https://arxiv.org/html/2605.02363v1", "titulo": "When Correct Isn't Usable: Improving Structured Output Reliability in Small Language Models", "autores": "autores de preprint (não extraídos)", "ano": "2026", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F13", "url": "https://ai.plainenglish.io/5-tiny-language-models-for-tool-calling-part-3-ebcda32c2518", "titulo": "5 Tiny Language Models for Tool Calling (Part 3)", "autores": "Minh Le Duc", "ano": "2026", "veiculo": "Plain English (Medium)", "tipo": "blogue", "nivel": "C", "lida": "trechos"},
+    {"ref": "F14", "url": "https://latenteval.ai/glossary/premature-termination-agents", "titulo": "Premature termination (AI agents) | LatentEval", "autores": "LatentEval (equipa editorial)", "ano": "2026", "veiculo": "latenteval.ai", "tipo": "blogue", "nivel": "C", "lida": "trechos"},
+    {"ref": "F15", "url": "https://arxiv.org/html/2605.15206v1", "titulo": "AgentStop: Terminating Local AI Agents Early to Save Resources", "autores": "autores de preprint (não extraídos)", "ano": "2026", "veiculo": "arXiv", "tipo": "preprint", "nivel": "B", "lida": "trechos"},
+    {"ref": "F16", "url": "https://github.com/langchain-ai/langchain/issues/16374", "titulo": "early_stopping_method parameter of AgentExecutor doesn't work in expected way · langchain #16374", "autores": "comunidade LangChain (autor do issue)", "ano": "2023", "veiculo": "GitHub Issues", "tipo": "forum", "nivel": "C", "lida": "trechos"},
+    {"ref": "F17", "url": "https://developers.llamaindex.ai/python/examples/workflow/function_calling_agent", "titulo": "Workflow for a Function Calling Agent | LlamaIndex Developer Documentation", "autores": "LlamaIndex", "ano": "2026", "veiculo": "developers.llamaindex.ai", "tipo": "documentacao", "nivel": "A", "lida": "trechos"},
+    {"ref": "F18", "url": "https://dev.to/gabrielanhaia/tool-result-truncation-the-silent-bug-that-makes-agents-lie-3epe", "titulo": "Tool-Result Truncation: The Silent Bug That Makes Agents Lie", "autores": "Gabriel Anhaia", "ano": "2026", "veiculo": "DEV Community", "tipo": "blogue", "nivel": "C", "lida": "trechos"},
+    {"ref": "F19", "url": "https://live.paloaltonetworks.com/t5/engineering-blogs/rate-limiting-for-llm-applications-and-agents-why-it-matters-and/ba-p/1264762", "titulo": "Rate Limiting for LLM Applications and Agents: Why It Matters", "autores": "Palo Alto Networks (equipa de engenharia)", "ano": "2026", "veiculo": "Palo Alto Networks Engineering Blog", "tipo": "blogue", "nivel": "C", "lida": "trechos"},
+    {"ref": "F20", "url": "https://propelius.tech/blogs/function-calling-vs-tool-use-ai-agents", "titulo": "Function Calling vs Tool Use in AI Agents", "autores": "Propelius (equipa editorial)", "ano": "2026", "veiculo": "propelius.tech", "tipo": "blogue", "nivel": "C", "lida": "trechos"},
+    {"ref": "F21", "url": "https://community.n8n.io/t/feat-ai-tools-add-max-tool-interactions-to-ai-agent-nodes-to-prevent-infinite-loops/295587?tl=en", "titulo": "[Feature Request] Add 'Max Tool Interactions' to AI Agent nodes to prevent infinite loops — n8n Community", "autores": "comunidade n8n (Doru Gradinaru e outros)", "ano": "2026", "veiculo": "n8n Community Forum", "tipo": "forum", "nivel": "C", "lida": "trechos"}
+  ],
+  "contradicoes": [
+    {
+      "tema": "Constrained decoding/gramática em modelos pequenos: ajuda ou degrada?",
+      "posicoes": [
+        {"fonte": "F11", "diz": "Gramáticas (Lark + llguidance) subiram o pass rate médio de 62.5% para 75.2% em 13 modelos e reduziram erros de sintaxe e terminação precoce."},
+        {"fonte": "F12", "diz": "Mesmo otimizada, a constrained decoding tem overhead por inferência e, nalguns modelos, degrada o desempenho da tarefa."}
+      ],
+      "explicacao_provavel": "populacao"
+    },
+    {
+      "tema": "Teto cego de passos como guardrail principal vs. safety net secundário",
+      "posicoes": [
+        {"fonte": "F1", "diz": "max_turns/recursion_limit/max_iterations são o mecanismo central de terminação nos três grandes frameworks."},
+        {"fonte": "F10", "diz": "Um contador cego max_iter 'mata fluxos válidos de 15 passos no passo 11'; propõe deteção determinística de trajetória repetida como alternativa."}
+      ],
+      "explicacao_provavel": "definicao"
+    },
+    {
+      "tema": "Forçar resposta final com 'generate' resolve o esgotamento de iterações?",
+      "posicoes": [
+        {"fonte": "F6", "diz": "early_stopping_method='generate' chama o LLM uma última vez para gerar resposta final a partir dos passos acumulados."},
+        {"fonte": "F16", "diz": "Issue reporta que early_stopping_method não funciona como esperado nalgumas versões."}
+      ],
+      "explicacao_provavel": "metodo"
+    },
+    {
+      "tema": "Parar cedo vs. nunca parar: sintomas opostos do mesmo critério em falta",
+      "posicoes": [
+        {"fonte": "F14", "diz": "Apertar a regra de paragem converte runs que não paravam em paragens prematuras; as duas taxas movem-se em direções opostas sob a maioria das correções."},
+        {"fonte": "F3", "diz": "Recursos recomendam limites apertados (ex.: recursion_limit 30 quando o normal são 10 tool calls) como crash guard."}
+      ],
+      "explicacao_provavel": "definicao"
+    }
+  ],
+  "lacunas": [
+    "Não há estudos quantificados da eficácia da deteção de ciclos por hash vs. teto cego de passos em tarefas multi-ferramenta reais (as fontes [F9][F10] são propostas/prática, não ensaios controlados).",
+    "Ausência de dados específicos sobre MiniCPM5-2B (ou qualquer 2–3B) em taxas de loop de tool calling; o BFCL v4 cobre multi-turn mas não publica taxa de loops como métrica.",
+    "Valores ótimos de max_steps, budget de tokens e tamanho de truncagem por tarefa não são quantificados na literatura consultada (aparecem só heurísticas: 4 passos para suporte, ~50 para investigação, 15–25 defaults de framework).",
+    "Efeito isolado de temperatura 0 e few-shot estrito na redução de loops não é quantificado nas fontes lidas (fronteira com Q2).",
+    "Sem evidência de ensaios comparativos entre guardrails de runtime e guardrails de prompt para prevenção de loops (a afirmação [F21] é de prática comunitária, não medida).",
+    "Mecanismos de 'força de resposta final' não são comparados entre si (final_answer tool vs. early_stopping 'generate' vs. chamada forçada sem tools) em modelos pequenos."
+  ],
+  "novas_perguntas": [
+    {"pergunta": "Que valores de max_steps e budget de tokens minimizam custo sem aumentar paragens prematuras num agente com um modelo 2–3B local?", "origem": "quantificacao", "prioridade": "alta", "porque": "A recomendação prática depende de números que a literatura consultada não fornece; o trade-off documentado em [F14] exige medição empírica na nossa app."},
+    {"pergunta": "Como se comporta o MiniCPM5-2B em BFCL v4 multi-turn comparado com xLAM-2-1b, Granite-4.1-3B e Qwen3.5-4B nos nossos schemas de ferramentas?", "origem": "atualidade", "prioridade": "alta", "porque": "Os falhanços de multi-turno e de recusa correta [F13] são exatamente os modos de falha que geram loops no exemplo Android."},
+    {"pergunta": "Deteção de ciclos por hash vs. teto de passos: qual a relação de custo/benefício em tarefas multi-ferramenta com execuções válidas longas?", "origem": "contra-evidencia", "prioridade": "media", "porque": "[F10] argumenta que o teto cego mata execuções válidas; é preciso saber quando o hash substitui ou complementa o teto."},
+    {"pergunta": "Qual o desenho mais fiável de 'resposta final forçada' em modelos pequenos: ferramenta final_answer, chamada sem tools, ou stop_reason?", "origem": "lacuna", "prioridade": "alta", "porque": "É o guardrail que decide se o utilizador recebe resposta ou erro quando o orçamento esgota; [F16] mostra que a via 'generate' tem problemas conhecidos."},
+    {"pergunta": "O que conta deterministicamente como 'progresso' de um agente (novos factos, cobertura do plano, campos preenchidos) e que métrica usar no loop?", "origem": "definicao", "prioridade": "media", "porque": "A deteção de não-progresso de [F9] depende de definir progresso de forma verificável sem LLM."},
+    {"pergunta": "Há casos documentados em que guardrails de loop bloquearam execuções válidas, e qual o custo associado?", "origem": "contra-evidencia", "prioridade": "media", "porque": "Necessário para calibrar limites sem converter loops em paragens prematuras [F14]."}
+  ],
+  "fontes_nao_usadas": [
+    {"url": "https://www.reddit.com/r/LangChain/comments/1u93lof/i_analyzed_why_langgraph_agents_burn_50_on", "porque_pode_importar": "Relato de que recursion_limit é 'blunt instrument' (rebenta o run e perde checkpoint); útil como prática de exceção graciosa, mas é anónimo e sem corroboração suficiente."},
+    {"url": "https://aierrorhub.com/providers/langchain/agent-infinite-loop", "porque_pode_importar": "Tabela útil de controlos de terminação do AgentExecutor e conselho 'tool returns unambiguous', mas parece agregador possivelmente gerado automaticamente; as ideias-chave estão corroboradas em [F6][F9]."},
+    {"url": "https://workos.com/blog/coding-agent-context-window-compaction-settings", "porque_pode_importar": "Detalhe de truncagem de tool results a 2000 caracteres durante compaction (com marcador do que foi cortado) — corrobora [F8][F18] noutro host."},
+    {"url": "https://www.emergentmind.com/topics/berkeley-function-calling-leaderboard-v4-bfclv4", "porque_pode_importar": "Tabela de resultados BFCL v4 (AST/Exec accuracy por modelo) para calibrar expectativas de fiabilidade de modelos 1–8B em tool calling."},
+    {"url": "https://www.developersdigest.tech/blog/tool-use-claude-api-production-patterns", "porque_pode_importar": "Padrões de produção de tool use na API Claude (retry, validação) que podem detalhar a camada de execução de ferramentas."},
+    {"url": "https://live.paloaltonetworks.com/t5/engineering-blogs/rate-limiting-for-llm-applications-and-agents-why-it-matters-and/ba-p/1264762", "porque_pode_importar": "Já usada apenas no ponto de budgets de tokens/custo [F19]; a parte de rate limiting por TPM/DPM merecia leitura integral para quotas multi-agente."}
+  ],
+  "consultas": [
+    "agent loop guardrails max steps tool calling infinite loop prevention",
+    "LangGraph recursion_limit GraphRecursionError infinite loop agent",
+    "OpenAI Agents SDK max_turns guardrails RunConfig tool use loop",
+    "Anthropic tool use best practices force final answer avoid repeating tool calls",
+    "smolagents max_steps final_answer tool calling agent error limit",
+    "LlamaIndex agent max_iterations tool call loop timeout FunctionCallingAgent",
+    "small language models function calling reliability 2B 3B constrained decoding JSON grammar tool use",
+    "Anthropic documentation tool use best practices strong schemas pre-provide values let model think",
+    "docs.anthropic.com tool use extend best practices avoid errors schemas enum",
+    "Berkeley Function Calling Leaderboard small models Qwen 2.5 3B tool calling accuracy failure",
+    "LangChain AgentExecutor max_iterations early_stopping_method generate force final answer handle_parsing_errors",
+    "truncate tool output agent observation context window limit max characters tool result",
+    "agent token budget limit per run guardrail cost control usage limits LLM agents",
+    "evidence against strict max step limits agents premature termination quality tradeoff"
+  ],
+  "alertas_seguranca": [
+    {
+      "url": "https://aierrorhub.com/providers/langchain/agent-infinite-loop",
+      "sinais": ["agregador sem autoria identificável", "estilo possivelmente gerado automaticamente", "estatísticas de 'frequência de causas-raiz' sem método visível"],
+      "acao": "descartada"
+    }
+  ]
+}
