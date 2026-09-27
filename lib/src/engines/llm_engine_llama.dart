@@ -454,8 +454,13 @@ class _Worker {
       //    => mojibake obrigatório; cai para CPU automaticamente.
       //  - Android: negativo vira 0 (shaders Vulkan só Adreno; CPU estável).
       final mp = b.modelDefaultParams();
+      // Deteção robusta de simulador iOS: (a) env var SIMULATOR_DEVICE_NAME
+      // (nem sempre visível no harness de testes); (b) o simulador partilha o
+      // FS do Mac — /Users existe; num iPhone real NÃO existe. Qualquer dos
+      // sinais ativa o fallback CPU (Metal do simulador = mojibake).
       final onSimulator = Platform.isIOS &&
-          Platform.environment.containsKey('SIMULATOR_DEVICE_NAME');
+          (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME') ||
+              Directory('/Users').existsSync());
       final wantsAll = cfg.gpuLayers < 0;
       final useGpuLayers = (Platform.isAndroid || onSimulator)
           ? (wantsAll ? 0 : cfg.gpuLayers)
