@@ -38,6 +38,9 @@ class LayaTokenizer {
   /// added tokens indexados pelo 1.º code unit (longest-match primeiro).
   final Map<int, List<String>> _addedByFirst;
 
+  /// ids de added tokens marcados `special` (o HF `decode` salta-os por omissão).
+  final Set<int> _specialIds;
+
   /// alfabeto GPT-2: byte → codepoint; e inverso.
   final List<int> _byteToChar;
   final Map<int, int> _charToByte;
@@ -53,26 +56,21 @@ class LayaTokenizer {
   /// Texto literal do token de máscara (scrub em instruções/opções/state).
   static const String maskToken = '[MASK]';
 
-  LayaTokenizer._({
-    required Map<String, int> vocab,
-    required List<String> idToToken,
-    required Map<String, int> mergeRank,
-    required Map<String, int> added,
-    required Map<int, List<String>> addedByFirst,
-    required List<int> byteToChar,
-    required Map<int, int> charToByte,
+  LayaTokenizer._(
+    this._vocab,
+    this._idToToken,
+    this._mergeRank,
+    this._added,
+    this._addedByFirst,
+    this._specialIds,
+    this._byteToChar,
+    this._charToByte, {
     required this.clsId,
     required this.sepId,
     required this.padId,
     required this.maskId,
     required this.unkId,
-  })  : _vocab = vocab,
-        _idToToken = idToToken,
-        _mergeRank = mergeRank,
-        _added = added,
-        _addedByFirst = addedByFirst,
-        _byteToChar = byteToChar,
-        _charToByte = charToByte;
+  });
 
   /// Constrói a partir do conteúdo JSON de `tokenizer.json`.
   factory LayaTokenizer.fromJson(Map<String, dynamic> json) {
@@ -106,10 +104,13 @@ class LayaTokenizer {
     }
 
     final added = <String, int>{};
+    final specialIds = <int>{};
     final rawAdded = (json['added_tokens'] as List?) ?? const [];
     for (final a in rawAdded) {
       final m = (a as Map).cast<String, dynamic>();
-      added[m['content'] as String] = (m['id'] as num).toInt();
+      final id = (m['id'] as num).toInt();
+      added[m['content'] as String] = id;
+      if (m['special'] == true) specialIds.add(id);
     }
 
     final addedByFirst = <int, List<String>>{};
@@ -146,13 +147,14 @@ class LayaTokenizer {
     });
 
     return LayaTokenizer._(
-      vocab: vocab,
-      idToToken: idToToken,
-      mergeRank: mergeRank,
-      added: added,
-      addedByFirst: addedByFirst,
-      byteToChar: byteToChar,
-      charToByte: charToByte,
+      vocab,
+      idToToken,
+      mergeRank,
+      added,
+      addedByFirst,
+      specialIds,
+      byteToChar,
+      charToByte,
       clsId: idOf('[CLS]', '[CLS]'),
       sepId: idOf('[SEP]', '[SEP]'),
       padId: idOf('[PAD]', '[PAD]'),
@@ -200,10 +202,12 @@ class LayaTokenizer {
   }
 
   /// Decodifica ids para texto (ByteLevel). Só para debug/testes — o motor não usa.
+  /// Salta tokens especiais, como o `decode(skip_special_tokens=true)` do HF.
   String decode(Iterable<int> ids) {
     final bytes = <int>[];
     for (final id in ids) {
       if (id < 0 || id >= _idToToken.length) continue;
+      if (_specialIds.contains(id)) continue;
       final symbol = _idToToken[id];
       if (symbol.isEmpty) continue;
       if (_added.containsKey(symbol)) {

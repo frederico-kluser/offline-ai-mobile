@@ -248,8 +248,8 @@ class _PromptsTabState extends State<PromptsTab> {
       buf.writeln('${e.key}: ${describeAnswer(a)}');
       final probs = a.probabilities.entries.toList()
         ..sort((x, y) => y.value.compareTo(x.value));
-      buf.writeln('  probabilities: ' +
-          probs.map((p) => '${p.key}=${p.value.toStringAsFixed(3)}').join(' | '));
+      buf.writeln(
+          '  probabilities: ${probs.map((p) => '${p.key}=${p.value.toStringAsFixed(3)}').join(' | ')}');
       buf.writeln('  confidence=${a.confidence.toStringAsFixed(3)} · '
           'answer_confidence=${a.answerConfidence.toStringAsFixed(3)} · '
           'act_probability=${a.actProbability.toStringAsFixed(3)}');
@@ -426,10 +426,9 @@ class _PromptsTabState extends State<PromptsTab> {
               : TextButton(
                   onPressed: () async {
                     await widget.store.clearRuns();
-                    if (mounted) {
-                      setState(() => _history = widget.store.runs);
-                      showSnack(context, 'Histórico limpo');
-                    }
+                    if (!mounted || !context.mounted) return;
+                    setState(() => _history = widget.store.runs);
+                    showSnack(context, 'Histórico limpo');
                   },
                   child: const Text('Limpar'),
                 ),

@@ -50,7 +50,7 @@ class SectionHeader extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).colorScheme.primary)),
           ),
-          if (trailing != null) trailing!,
+          ?trailing,
         ],
       ),
     );

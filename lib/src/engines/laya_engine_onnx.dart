@@ -22,8 +22,8 @@ import 'dart:math' as math;
 
 import 'package:onnxruntime_v2/onnxruntime_v2.dart';
 
-import '../domain/laya_config.dart';
 import '../domain/laya_types.dart';
+import '../domain/llm_config.dart';
 import '../laya/wordpiece_tokenizer.dart';
 import 'laya_engine.dart';
 
@@ -109,15 +109,15 @@ class LayaOnnxEngine implements LayaEngine {
     _loadError = null;
     _modelPath = modelPath;
 
-    final handshake = Completer<SendPort>();
+    final handshake = ReceivePort();
     final isolate = await Isolate.spawn(
       _layaWorkerMain,
-      handshake.complete,
+      handshake.sendPort,
       debugName: 'LayaOnnxEngine',
-      onError: null,
     );
     _isolate = isolate;
-    final commands = await handshake.future;
+    final commands = await handshake.first as SendPort;
+    handshake.close();
     _commands = commands;
 
     final reply = ReceivePort();
@@ -186,7 +186,7 @@ class LayaOnnxEngine implements LayaEngine {
     _loadError = null;
   }
 
-  Future<Object?> _request(ReceivePort port, Object cmd) {
+  Future<Object?> _request(ReceivePort port, _Cmd cmd) {
     final id = _nextId++;
     final completer = Completer<Object?>();
     _inflight[id] = completer;
@@ -206,14 +206,20 @@ class LayaOnnxEngine implements LayaEngine {
 
 class _Envelope {
   final int id;
-  final Object cmd;
+  final _Cmd cmd;
   const _Envelope(this.id, this.cmd);
 }
 
-class _LoadCmd {
+sealed class _Cmd {
+  const _Cmd();
+  SendPort get reply;
+}
+
+class _LoadCmd extends _Cmd {
   final String modelPath;
   final String tokenizerPath;
   final LayaConfig config;
+  @override
   final SendPort reply;
   const _LoadCmd({
     required this.modelPath,
@@ -223,13 +229,15 @@ class _LoadCmd {
   });
 }
 
-class _DecideCmd {
+class _DecideCmd extends _Cmd {
   final LayaRequest request;
+  @override
   final SendPort reply;
   const _DecideCmd({required this.request, required this.reply});
 }
 
-class _UnloadCmd {
+class _UnloadCmd extends _Cmd {
+  @override
   final SendPort reply;
   const _UnloadCmd({required this.reply});
 }
@@ -248,55 +256,52 @@ class _Err {
 // Worker isolate: tokenizer + sessão ORT + encode/decode.
 // ---------------------------------------------------------------------------
 
-Future<void> _layaWorkerMain(void Function(SendPort) handshake) async {
+Future<void> _layaWorkerMain(SendPort handshake) async {
   final commands = ReceivePort();
-  handshake(commands.sendPort);
+  handshake.send(commands.sendPort);
 
   LayaTokenizer? tokenizer;
   OrtSession? session;
   OrtEnv? env;
+  var config = const LayaConfig();
   var loadError = 'motor não carregado';
 
   await for (final raw in commands) {
     final envelope = raw as _Envelope;
     final id = envelope.id;
     final cmd = envelope.cmd;
+    Object result;
     try {
       if (cmd is _LoadCmd) {
-        final result = _workerLoad(cmd, () {
-          env = OrtEnv.instance;
-        }, (t, s) {
+        config = cmd.config;
+        result = _workerLoad(cmd, (t, s, e) {
           tokenizer = t;
           session = s;
+          env = e;
         });
-        if (result is _Ok) {
-          loadError = '';
-        } else {
-          loadError = (result as _Err).message;
-        }
-        _reply(id, cmd.reply, result);
+        loadError = result is _Err ? result.message : '';
       } else if (cmd is _DecideCmd) {
         final tok = tokenizer;
         final sess = session;
         if (tok == null || sess == null) {
-          _reply(
-              id,
-              cmd.reply,
-              _Err('não é possível decidir — o modelo não carregou: $loadError'));
-          continue;
+          result = _Err(
+              'não é possível decidir — o modelo não carregou: $loadError');
+        } else {
+          result = _workerDecide(cmd.request, tok, sess, config);
         }
-        _reply(id, cmd.reply, _workerDecide(cmd.request, tok, sess));
       } else if (cmd is _UnloadCmd) {
         session?.release();
         env?.release();
         _reply(id, cmd.reply, const _Ok());
         commands.close();
         Isolate.exit();
+      } else {
+        result = _Err('comando desconhecido: $cmd');
       }
     } catch (e, st) {
-      _reply(id, (cmd as dynamic).reply as SendPort,
-          _Err('$e\n${st.toString().split('\n').take(4).join('\n')}'));
+      result = _Err('$e\n${st.toString().split('\n').take(4).join('\n')}');
     }
+    _reply(id, cmd.reply, result);
   }
 }
 
@@ -307,11 +312,9 @@ void _reply(int id, SendPort reply, Object? result) {
 /// Cria tokenizer + sessão ORT (EP CPU). Devolve [_Ok] ou [_Err] com o erro exato.
 Object _workerLoad(
   _LoadCmd cmd,
-  void Function() onEnv,
-  void Function(LayaTokenizer, OrtSession) onReady,
+  void Function(LayaTokenizer, OrtSession, OrtEnv) onReady,
 ) {
   try {
-    onEnv();
     OrtEnv.instance.init(level: OrtLoggingLevel.warning, logId: 'laya');
   } catch (e) {
     return _Err('ONNX Runtime (OrtEnv.init) falhou: $e');
@@ -330,7 +333,7 @@ Object _workerLoad(
     // hardware — o default do ORT é o CPU EP.
     final session = OrtSession.fromFile(File(cmd.modelPath), options);
     options.release();
-    onReady(tokenizer, session);
+    onReady(tokenizer, session, OrtEnv.instance);
     return const _Ok();
   } catch (e) {
     // Caso §8.1 da spec: o runtime não carregou o artefacto (p.ex. contrib-ops
@@ -341,13 +344,9 @@ Object _workerLoad(
 
 /// Pipeline completo de uma decisão: encode → tensores → run → decode.
 Object _workerDecide(LayaRequest request, LayaTokenizer tokenizer,
-    OrtSession session) {
+    OrtSession session, LayaConfig config) {
   final started = DateTime.now();
-  final maxLen = request.questions.isEmpty ? 512 : 512; // substituído abaixo
-  // maxLen/maxStateChars vêm do config guardado no load; aqui usa-se o contrato:
-  // `maxStateTokens` do LayaConfig — ver `_workerConfig`.
-  final config = _workerConfig ?? const LayaConfig();
-  final maxLen2 = config.maxStateTokens;
+  final maxLen = config.maxStateTokens;
   final state = config.maxStateChars > 0 &&
           request.state.length > config.maxStateChars
       ? request.state.substring(0, config.maxStateChars)
@@ -362,7 +361,7 @@ Object _workerDecide(LayaRequest request, LayaTokenizer tokenizer,
       tokenizer: tokenizer,
       state: state,
       q: q,
-      maxLen: maxLen2,
+      maxLen: maxLen,
       headMaxLen: layaHeadMaxLen,
     );
     final k = built.markers.length;
@@ -375,7 +374,6 @@ Object _workerDecide(LayaRequest request, LayaTokenizer tokenizer,
 
     final decoded = _runAndDecode(
       session: session,
-      tokenizer: tokenizer,
       qtype: qtypeIndex(question.type),
       ids: built.ids,
       markers: built.markers,
@@ -390,9 +388,6 @@ Object _workerDecide(LayaRequest request, LayaTokenizer tokenizer,
     latencyMs: DateTime.now().difference(started).inMilliseconds,
   ));
 }
-
-/// Config do motor, guardada no load (o worker não tem estado de UI).
-LayaConfig? _workerConfig;
 
 /// Forma interna de uma pergunta (espelha `_to_internal` da referência).
 class _InternalQuestion {
@@ -484,13 +479,15 @@ class _Decoded {
 /// Corre o grafo (batch estático 1) e faz o decode base (spec §4 e §7).
 _Decoded _runAndDecode({
   required OrtSession session,
-  required LayaTokenizer tokenizer,
   required int qtype,
   required List<int> ids,
   required List<int> markers,
 }) {
   final l = ids.length;
   final k = markers.length;
+  if (k < 1 || l < 2) {
+    throw StateError('sequência inválida: L=$l, K=$k');
+  }
   final inputs = <String, OrtValue>{
     'input_ids': OrtValueTensor.createTensorWithDataList(ids, [1, l]),
     'attention_mask':

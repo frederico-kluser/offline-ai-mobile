@@ -106,9 +106,11 @@ class _ToolsTabState extends State<ToolsTab> {
       final services = AppServices.instance;
       final modelPath = services.llmModelPath;
       if (modelPath == null) {
-        showSnack(context,
-            'Modelo GGUF não instalado. Descarrega o GGUF na aba Modelos.',
-            error: true);
+        if (mounted) {
+          showSnack(context,
+              'Modelo GGUF não instalado. Descarrega o GGUF na aba Modelos.',
+              error: true);
+        }
         return;
       }
       final engine =
@@ -116,7 +118,9 @@ class _ToolsTabState extends State<ToolsTab> {
       final tools = demoTools(services.noteStore);
       final loop = services.makeToolLoop(llm: engine, tools: tools);
       if (loop == null) {
-        showSnack(context, 'ToolLoop indisponível nesta build.', error: true);
+        if (mounted) {
+          showSnack(context, 'ToolLoop indisponível nesta build.', error: true);
+        }
         return;
       }
       await for (final ev

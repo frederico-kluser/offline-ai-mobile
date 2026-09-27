@@ -257,8 +257,9 @@ class _LayaTabState extends State<LayaTab> {
               onPressed: () async {
                 final changed =
                     await showLayaConfigSheet(context, widget.store);
-                if (changed && mounted) {
-                  setState(() {});
+                if (!mounted || !context.mounted) return;
+                setState(() {});
+                if (changed) {
                   showSnack(context, 'Configuração do Laya guardada');
                 }
               },

@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import '../agent/tool_loop.dart';
 import '../agent/tools.dart';
 import '../engines/laya_engine.dart';
+import '../engines/laya_engine_onnx.dart';
 import '../engines/llm_engine.dart';
 import '../services/download_manager.dart';
 import '../services/model_registry.dart';
@@ -33,8 +34,10 @@ class AppServices {
   late final DownloadManager downloads = DownloadManager();
 
   /// Factories opcionais de motores (ligadas quando os ficheiros existem).
+  /// O motor Laya já está ligado; o LLM fica por ligar até existir
+  /// `llm_engine_llama.dart` (nesse caso: `llmFactory = () => LlamaFfiEngine()`).
   LlmEngine Function()? llmFactory;
-  LayaEngine Function()? layaFactory;
+  LayaEngine Function()? layaFactory = LayaOnnxEngine.new;
 
   /// Factory opcional do [ToolLoop] (para testes/injeção).
   ToolLoop Function({required LlmEngine llm, required List<LocalTool> tools})?
