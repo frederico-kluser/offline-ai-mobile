@@ -14,6 +14,7 @@ import '../services/store.dart';
 import 'app_services.dart';
 import 'common.dart';
 import 'llm_config_form.dart';
+import 'llm_settings_page.dart';
 
 /// Entradas da timeline do agente.
 sealed class TimelineEntry {
@@ -152,6 +153,14 @@ class _ToolsTabState extends State<ToolsTab> {
     }
   }
 
+  /// Abre as Definições do LLM (progressive disclosure) e aplica o resultado.
+  Future<void> _openSettings() async {
+    final updated = await LlmSettingsPage.open(context, _config);
+    if (!mounted || updated == null) return;
+    setState(() => _config = updated);
+    await widget.store.saveLlmConfig(updated);
+  }
+
   @override
   Widget build(BuildContext context) {
     final services = AppServices.instance;
@@ -160,13 +169,6 @@ class _ToolsTabState extends State<ToolsTab> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const SectionHeader('Configuração do LLM (todos os campos)'),
-        LlmConfigEditor(
-          config: _config,
-          onChanged: (c) => setState(() => _config = c),
-        ),
-        const SizedBox(height: 8),
-        ValidationBox(problems),
         const SectionHeader('Demo de tool calling'),
         if (!_llmInstalled)
           const InfoBanner(
@@ -281,6 +283,44 @@ class _ToolsTabState extends State<ToolsTab> {
             ),
           ),
         ],
+        const SectionHeader('Configuração do LLM'),
+        Card(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final e in <String, String>{
+                      'temperature': _config.temperature.toStringAsFixed(3),
+                      'min_p': _config.minP.toStringAsFixed(3),
+                      'seed': '${_config.seed}',
+                      'DRY': _config.dryEnabled ? 'ligado' : 'desligado',
+                    }.entries)
+                      Chip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text('${e.key}: ${e.value}'),
+                      ),
+                  ],
+                ),
+                if (problems.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  ValidationBox(problems),
+                ],
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _openSettings,
+                  icon: const Icon(Icons.tune),
+                  label: const Text('Abrir definições completas'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }

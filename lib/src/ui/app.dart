@@ -43,7 +43,7 @@ class _HomeShellState extends State<HomeShell> {
   static const List<String> _titles = [
     'Prompts',
     'Laya (decisor tipado)',
-    'LLM + Tools',
+    'Tools',
     'Modelos',
   ];
 
@@ -74,7 +74,7 @@ class _HomeShellState extends State<HomeShell> {
           ),
           NavigationDestination(
             icon: Icon(Icons.handyman_outlined),
-            label: 'LLM + Tools',
+            label: 'Tools',
           ),
           NavigationDestination(
             icon: Icon(Icons.storage_outlined),

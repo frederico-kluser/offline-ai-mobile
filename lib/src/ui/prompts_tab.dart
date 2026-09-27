@@ -5,7 +5,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../domain/laya_types.dart';
 import '../domain/llm_config.dart';
@@ -15,7 +14,8 @@ import '../engines/llm_engine.dart';
 import '../services/store.dart';
 import 'app_services.dart';
 import 'common.dart';
-import 'llm_config_form.dart';
+import 'history_page.dart';
+import 'llm_settings_page.dart';
 
 enum RunMode { llm, laya }
 
@@ -47,6 +47,9 @@ class _PromptsTabState extends State<PromptsTab> {
 
   List<RunRecord> _history = const [];
 
+  /// Âncora do cartão Resultado (para auto-scroll após executar).
+  final GlobalKey _resultKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +79,15 @@ class _PromptsTabState extends State<PromptsTab> {
       if (t.id == id) return t.questions;
     }
     return kLayaTemplates.first.questions;
+  }
+
+  /// Nome do template Laya ativo (evita dependência escondida entre abas).
+  String get _activeTemplateName {
+    final id = widget.store.selectedTemplateId;
+    for (final t in kLayaTemplates) {
+      if (t.id == id) return t.name;
+    }
+    return kLayaTemplates.first.name;
   }
 
   Future<void> _run() async {
@@ -265,58 +277,28 @@ class _PromptsTabState extends State<PromptsTab> {
     setState(() => _history = widget.store.runs);
   }
 
-  Future<void> _copyJson(RunRecord record) async {
-    await Clipboard.setData(ClipboardData(text: prettyJson(record.toJson())));
-    if (mounted) {
-      showSnack(context, 'JSON do registo copiado');
+  /// Executa e traz o cartão Resultado para a vista (posição de primazia).
+  Future<void> _runAndScroll() async {
+    await _run();
+    if (!mounted || !context.mounted) return;
+    final ctx = _resultKey.currentContext;
+    if (ctx != null) {
+      await Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 300),
+        alignment: 0.05,
+      );
     }
   }
 
-  Future<void> _saveGolden(RunRecord record) async {
-    await widget.store.setGolden(record);
-    if (mounted) {
-      showSnack(context, 'Golden guardado para a assinatura ${record.signature}');
-    }
+  /// Abre as Definições do LLM (progressive disclosure) e aplica o resultado.
+  Future<void> _openSettings() async {
+    final updated = await LlmSettingsPage.open(context, _config);
+    if (!mounted || updated == null) return;
+    setState(() => _config = updated);
+    await widget.store.saveLlmConfig(updated);
   }
 
-  void _compareGolden(RunRecord record) {
-    final golden = widget.store.goldenFor(record.signature);
-    if (golden == null) {
-      showSnack(context,
-          'Sem golden registado para a assinatura ${record.signature} — toca em "Guardar golden".',
-          error: true);
-      return;
-    }
-    final diff = diffRuns(record, golden);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Comparação golden'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            MetricRow('assinatura', record.signature),
-            MetricRow('golden', golden.signature),
-            MetricRow(
-                'saída idêntica', diff.identicalOutput ? 'sim ✔' : 'não ✘'),
-            if (diff.firstDivergence != null) ...[
-              const SizedBox(height: 8),
-              Text('Primeira divergência:',
-                  style: Theme.of(ctx).textTheme.labelLarge),
-              SelectableText(diff.firstDivergence!),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Fechar'),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -356,9 +338,10 @@ class _PromptsTabState extends State<PromptsTab> {
           onSelectionChanged: (s) => setState(() => _mode = s.first),
         ),
         if (_mode == RunMode.laya)
-          const InfoBanner(
-            'Em modo Laya o user prompt é o `state`; as perguntas tipadas vêm '
-            'do template selecionado no separador Laya.',
+          InfoBanner(
+            'Template ativo: "$_activeTemplateName" '
+            '(${_layaQuestions.length} perguntas tipadas) — o user prompt é o '
+            '`state`; edita as perguntas no separador Laya.',
             icon: Icons.rule,
           ),
         if (_mode == RunMode.llm && !_llmInstalled)
@@ -372,15 +355,35 @@ class _PromptsTabState extends State<PromptsTab> {
             'Kit ONNX do Laya não instalado. Descarrega o kit na aba Modelos.',
             icon: Icons.warning_amber,
           ),
-        const SectionHeader('Parâmetros essenciais (defaults determinísticos)'),
-        LlmConfigEditor(
-          config: _config,
-          compact: true,
-          onChanged: (c) => setState(() => _config = c),
+        SectionHeader(
+          'Parâmetros (resumo)',
+          trailing: TextButton.icon(
+            onPressed: _openSettings,
+            icon: const Icon(Icons.tune, size: 18),
+            label: const Text('Editar definições'),
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                _ParamChip('temperature', _config.temperature.toStringAsFixed(3)),
+                _ParamChip('min_p', _config.minP.toStringAsFixed(3)),
+                _ParamChip('maxTokens', '${_config.maxTokens}'),
+                _ParamChip('seed', '${_config.seed}'),
+                _ParamChip('thinking', _config.enableThinking ? 'ON' : 'OFF'),
+                _ParamChip('DRY', _config.dryEnabled ? 'ligado' : 'desligado'),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: 8),
         FilledButton.icon(
-          onPressed: _running ? null : _run,
+          onPressed: _running ? null : _runAndScroll,
           icon: _running
               ? const SizedBox(
                   width: 16,
@@ -389,62 +392,42 @@ class _PromptsTabState extends State<PromptsTab> {
               : const Icon(Icons.play_arrow),
           label: Text(_running ? 'A executar…' : 'Executar'),
         ),
-        const SectionHeader('Saída'),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: SelectableText(
-            _output.isEmpty ? 'sem saída' : _output,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-          ),
-        ),
-        const SectionHeader('Métricas'),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            children: [
-              MetricRow('tokens in / out', '$_promptTokens / $_outputTokens'),
-              MetricRow('latência', '$_latencyMs ms'),
-              MetricRow('stop_reason', _stopReason),
-              MetricRow('fingerprint da execução', _signature),
-            ],
-          ),
-        ),
-        SectionHeader(
-          'Histórico (${_history.length})',
-          trailing: _history.isEmpty
-              ? null
-              : TextButton(
-                  onPressed: () async {
-                    await widget.store.clearRuns();
-                    if (!mounted || !context.mounted) return;
-                    setState(() => _history = widget.store.runs);
-                    showSnack(context, 'Histórico limpo');
-                  },
-                  child: const Text('Limpar'),
+        const SectionHeader('Resultado'),
+        Card(
+          key: _resultKey,
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(
+                  _output.isEmpty ? 'sem saída' : _output,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                 ),
-        ),
-        if (_history.isEmpty)
-          const InfoBanner(
-            'Sem execuções registadas. As corridas aparecem aqui com métricas, '
-            'assinatura e comparação golden.',
-            icon: Icons.history,
+                const Divider(height: 16),
+                MetricRow('tokens in / out', '$_promptTokens / $_outputTokens'),
+                MetricRow('latência', '$_latencyMs ms'),
+                MetricRow('stop_reason', _stopReason),
+                MetricRow('fingerprint da execução', _signature),
+              ],
+            ),
           ),
-        for (final record in _history) _RunRecordTile(
-          record: record,
-          hasGolden: widget.store.goldenFor(record.signature) != null,
-          onCopy: () => _copyJson(record),
-          onGolden: () => _saveGolden(record),
-          onCompare: () => _compareGolden(record),
+        ),
+        const SectionHeader('Histórico'),
+        Card(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          child: ListTile(
+            leading: const Icon(Icons.history),
+            title: Text('Ver histórico (${_history.length} execuções)'),
+            subtitle: const Text('Métricas, assinaturas e comparação golden'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              await HistoryPage.open(context, widget.store);
+              if (!mounted) return;
+              setState(() => _history = widget.store.runs);
+            },
+          ),
         ),
         services.llm == null && services.laya == null
             ? const InfoBanner(
@@ -458,83 +441,21 @@ class _PromptsTabState extends State<PromptsTab> {
   }
 }
 
-class _RunRecordTile extends StatelessWidget {
-  const _RunRecordTile({
-    required this.record,
-    required this.hasGolden,
-    required this.onCopy,
-    required this.onGolden,
-    required this.onCompare,
-  });
+/// Chip-resumo de um parâmetro (leitura rápida; edição nas Definições).
+class _ParamChip extends StatelessWidget {
+  const _ParamChip(this.label, this.value);
 
-  final RunRecord record;
-  final bool hasGolden;
-  final VoidCallback onCopy;
-  final VoidCallback onGolden;
-  final VoidCallback onCompare;
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    final t = record.startedAt.toLocal();
-    final when =
-        '${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')} '
-        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Chip(
-                    label: Text(record.kind),
-                    visualDensity: VisualDensity.compact),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(record.modelId,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall),
-                ),
-                Text(when, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-            const SizedBox(height: 4),
-            MetricRow('prompt', record.prompt),
-            MetricRow('tokens in / out',
-                '${record.promptTokens} / ${record.outputTokens}'),
-            MetricRow('latência', '${record.latencyMs} ms'),
-            MetricRow('stop_reason', record.stopReason ?? '—'),
-            MetricRow('assinatura', record.signature),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 4,
-              children: [
-                TextButton.icon(
-                  onPressed: onCopy,
-                  icon: const Icon(Icons.copy, size: 16),
-                  label: const Text('Copiar JSON'),
-                ),
-                TextButton.icon(
-                  onPressed: onGolden,
-                  icon: const Icon(Icons.save_alt, size: 16),
-                  label: const Text('Guardar golden'),
-                ),
-                TextButton.icon(
-                  onPressed: onCompare,
-                  icon: Icon(
-                    hasGolden ? Icons.rule : Icons.rule_outlined,
-                    size: 16,
-                  ),
-                  label: Text(hasGolden ? 'Comparar golden' : 'Comparar (sem golden)'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: const Icon(Icons.tune, size: 14),
+      label: Text('$label: $value',
+          style: Theme.of(context).textTheme.labelMedium),
     );
   }
 }
+

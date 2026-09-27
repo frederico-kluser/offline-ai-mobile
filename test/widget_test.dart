@@ -60,8 +60,8 @@ void main() {
     expect(find.text('Ver JSON').hitTestable(), findsOneWidget);
     expect(find.text('Configuração do Laya').hitTestable(), findsOneWidget);
 
-    // LLM + Tools.
-    await _tapDestination(tester, 'LLM + Tools');
+    // Tools (demo de tool calling primeiro; configuração em página própria).
+    await _tapDestination(tester, 'Tools');
     expect(_selectedIndex(tester), 2);
     expect(find.text('Correr agente').hitTestable(), findsOneWidget);
     expect(find.text(AppStore.defaultTask).hitTestable(), findsOneWidget);
