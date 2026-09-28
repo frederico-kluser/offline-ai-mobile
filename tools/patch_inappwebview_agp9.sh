@@ -49,6 +49,6 @@ if [ -n "$CHECK_ONLY" ]; then
   exit 1
 fi
 
-cp "$GRADLE" "$GRADLE.agp9.bak"
-sed -i "s/$OLD/$NEW/g" "$GRADLE"
+# sed -i portável (GNU vs BSD): sufixo explícito faz backup em .agp9.bak
+sed -i.agp9.bak "s/$OLD/$NEW/g" "$GRADLE"
 echo "OK: patch AGP 9 aplicado (backup: $GRADLE.agp9.bak)"
