@@ -43,6 +43,10 @@ dependencies:
   # Persistência de configurações (Laya + LLM).
   shared_preferences: ^2.3.3
   onnxruntime_v2: ^1.23.2+2
+  # Browser embutido (WebView controlada pela camada de ações — dossiê
+  # pesquisas/2026-09-27-browser-embutido): UserScript AT_DOCUMENT_START +
+  # bridge tipada Dart<->JS. Plano B documentado: webview_flutter 4.x.
+  flutter_inappwebview: ^6.1.5
 
 dev_dependencies:
   integration_test:

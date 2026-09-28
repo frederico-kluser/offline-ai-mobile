@@ -22,6 +22,7 @@ descarrega-os por botão para a pasta privada.
 | **Laya** | templates de decisões tipadas editáveis (roteamento PT/EN, guardrails de agente, verificação de negação), execução com probabilidades e confiança, config do motor |
 | **LLM + Tools** | configuração completa do MiniCPM5-2B (validada por regras) e demo de tool calling multi-passo com timeline de passos e cortes de guardrail visíveis |
 | **Modelos** | descarregar / verificar / apagar artefactos (GGUF Q4_K_M, Q5_K_M e Q8_0 do MiniCPM5-2B; kit ONNX 4-bit do Laya) |
+| **Browser** | browser embutido em tela inteira controlado por 3 caminhos: teclas flutuantes (humano), piloto Laya (decisão tipada) e agente MiniCPM5-2B (tool calling) — feature de teste; ver `pesquisas/2026-09-27-browser-embutido/NOTAS-CONHECIMENTO.md` |
 
 ## Determinismo e anti-loops (o cerne)
 

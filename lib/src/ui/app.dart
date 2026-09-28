@@ -1,10 +1,11 @@
 /// Shell da app: tema Material 3 simples (seed teal) + NavigationBar com os
-/// 4 destinos. Sem animações extra, sem gradientes.
+/// 5 destinos. Sem animações extra, sem gradientes.
 library;
 
 import 'package:flutter/material.dart';
 
 import '../services/store.dart';
+import 'browser_tab.dart';
 import 'laya_tab.dart';
 import 'models_tab.dart';
 import 'prompts_tab.dart';
@@ -45,6 +46,7 @@ class _HomeShellState extends State<HomeShell> {
     'Laya (decisor tipado)',
     'Tools',
     'Modelos',
+    'Browser',
   ];
 
   @override
@@ -58,6 +60,7 @@ class _HomeShellState extends State<HomeShell> {
           LayaTab(store: widget.store),
           ToolsTab(store: widget.store),
           ModelsTab(store: widget.store),
+          BrowserTab(store: widget.store),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -79,6 +82,10 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(
             icon: Icon(Icons.storage_outlined),
             label: 'Modelos',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.public),
+            label: 'Browser',
           ),
         ],
       ),
