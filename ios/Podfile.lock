@@ -1,5 +1,12 @@
 PODS:
   - Flutter (1.0.0)
+  - flutter_inappwebview_ios (0.0.1):
+    - Flutter
+    - flutter_inappwebview_ios/Core (= 0.0.1)
+    - OrderedSet (~> 6.0.3)
+  - flutter_inappwebview_ios/Core (0.0.1):
+    - Flutter
+    - OrderedSet (~> 6.0.3)
   - llama_ffi (1.0.0)
   - onnxruntime-c (1.23.0)
   - onnxruntime-objc (1.23.0):
@@ -9,9 +16,11 @@ PODS:
   - onnxruntime_v2 (0.0.1):
     - Flutter
     - onnxruntime-objc (= 1.23.0)
+  - OrderedSet (6.0.3)
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
+  - flutter_inappwebview_ios (from `.symlinks/plugins/flutter_inappwebview_ios/ios`)
   - llama_ffi (from `pods/llama_ffi`)
   - onnxruntime_v2 (from `.symlinks/plugins/onnxruntime_v2/ios`)
 
@@ -19,10 +28,13 @@ SPEC REPOS:
   trunk:
     - onnxruntime-c
     - onnxruntime-objc
+    - OrderedSet
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
+  flutter_inappwebview_ios:
+    :path: ".symlinks/plugins/flutter_inappwebview_ios/ios"
   llama_ffi:
     :path: pods/llama_ffi
   onnxruntime_v2:
@@ -30,10 +42,12 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+  flutter_inappwebview_ios: b89ba3482b96fb25e00c967aae065701b66e9b99
   llama_ffi: c051985c51df50757c6eb60fcb0037af1053d411
   onnxruntime-c: 3174c63a963d9abbc2bf9627e3d622819c0ed5f7
   onnxruntime-objc: 1254d12f8160e562e7693ff17f5aa3dd17dc409e
   onnxruntime_v2: 4efe47858784a1fd65b5fc6d71d179f1d82b029d
+  OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
 
 PODFILE CHECKSUM: 4675a6fe4fbd5a3642f85edcb3b6cdb811fff8a4
 
