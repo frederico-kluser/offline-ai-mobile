@@ -7,10 +7,10 @@
 /// do agente exclui `eval`/`stop` (escape hatch é só do humano).
 library;
 
+import '../agent/tools.dart';
 import '../domain/tool_spec.dart';
 import 'browser_action.dart';
 import 'browser_controller.dart';
-import 'tools.dart';
 
 /// System prompt do agente-browser (fluxo determinístico: observar → agir →
 /// observar; uma ação de cada vez; nunca repetir chamadas).

@@ -114,7 +114,7 @@ class WebViewBrowserController implements BrowserController {
         },
         onReceivedError: (c, request, error) {
           _events.add(BrowserEvent('console',
-              url: request.url?.toString(),
+              url: request.url.toString(),
               detail: 'erro de carga: ${error.description}'));
         },
       );
@@ -214,7 +214,7 @@ class WebViewBrowserController implements BrowserController {
               durationMs: sw.elapsedMilliseconds);
 
         default:
-          return _runBridgeAction(action, sw);
+          return await _runBridgeAction(action, sw);
       }
     } on TimeoutException {
       return ActionResult.error(
