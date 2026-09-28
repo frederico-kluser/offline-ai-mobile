@@ -1,2 +1,8 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+
+// Fix: eager linking do Xcode falha com pods binários (xcframeworks) — o
+// Runner.debug.dylib é linked antes de os intermediates dos pods existirem
+// ("ld: framework onnxruntime not found" / XCFrameworkIntermediates not found).
+// Desligar o debug dylib elimina o passo problemático (mantém o app funcional).
+ENABLE_DEBUG_DYLIB = NO
