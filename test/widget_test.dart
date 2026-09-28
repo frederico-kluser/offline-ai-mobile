@@ -38,14 +38,14 @@ int _selectedIndex(WidgetTester tester) =>
     tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
 
 void main() {
-  testWidgets('arranca com os 4 destinos e navega entre telas', (tester) async {
+  testWidgets('arranca com os 5 destinos e navega entre telas', (tester) async {
     _bigScreen(tester);
     final store = await _mockStore();
     await tester.pumpWidget(OfflineAiApp(store: store));
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.byType(NavigationDestination), findsNWidgets(4));
+    expect(find.byType(NavigationDestination), findsNWidgets(5));
 
     // Prompts (inicial).
     expect(_selectedIndex(tester), 0);
@@ -73,6 +73,16 @@ void main() {
     expect(
         find.text('MiniCPM5-2B · GGUF Q8_0').hitTestable(), findsOneWidget);
     expect(find.text('Laya typed-decisions · ONNX 4-bit').hitTestable(),
+        findsOneWidget);
+
+    // Browser (cartão de entrada da feature de browser embutido).
+    await _tapDestination(tester, 'Browser');
+    expect(_selectedIndex(tester), 4);
+    expect(find.text('Abrir browser (tela inteira)').hitTestable(),
+        findsOneWidget);
+    expect(find.text('Piloto Laya (decisor tipado)').hitTestable(),
+        findsOneWidget);
+    expect(find.text('Agente MiniCPM5-2B (tool calling)').hitTestable(),
         findsOneWidget);
   });
 
