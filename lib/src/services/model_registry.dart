@@ -1,10 +1,11 @@
 /// Catálogo de artefactos descarregáveis (NENHUM modelo vem embutido na app).
 ///
-/// Ficheiros verificados contra os repositórios oficiais/comunitários (dossiês
-/// Q3/Q5): GGUF do MiniCPM5-2B (bartowski — nomes de ficheiro confirmados) e o
-/// kit ONNX do Laya typed-decisions (m1rhan). Os tamanhos são os publicados e
-/// servem para planear armazenamento; o download verifica sha256 quando
-/// disponível.
+/// Ficheiros verificados contra os repositórios oficiais/comunitários: GGUF do
+/// MiniCPM5-2B (bartowski) e o kit ONNX do Laya typed-decisions — **export fp32
+/// oficial** (`convaiinnovations/laya-typed-decisions`) gerado por
+/// `tools/laya_export_fp32.py` e publicado como release deste repo (o checkpoint
+/// fp32 não cabe nos repositórios HF). Todos os ficheiros do kit Laya levam
+/// sha256 fixado; o download verifica-o sempre.
 library;
 
 class RemoteFile {
@@ -80,37 +81,46 @@ final List<ModelArtifact> kModelCatalog = [
   ),
   const ModelArtifact(
     id: 'laya-typed-onnx',
-    label: 'Laya typed-decisions · ONNX 4-bit',
-    description: 'Decisor tipado (noul/choice/score), 428 MB, head fundida '
-        '(5 inputs → logits + act_logits). Re-export de terceiros: verificar '
-        'checksum e fixtures (doc §11). Inclui tokenizer WordPiece.',
+    label: 'Laya typed-decisions oficial · ONNX fp32',
+    description: 'Decisor tipado (noul/choice/score) SEM compressão: export fp32 '
+        'de 1,69 GB do checkpoint oficial Convai Innovations, head fundida '
+        '(5 inputs → logits + act_logits). Calibração oficial '
+        '(max_len 1024 · head_max_len 256) + tokenizer BPE ByteLevel.',
     kind: 'laya-onnx-kit',
     localDirName: 'models/laya-typed-onnx',
-    mainFilename: 'model_q4.onnx',
+    mainFilename: 'model.onnx',
     files: [
       RemoteFile(
         url:
-            'https://huggingface.co/m1rhan/laya-typed-decisions-ONNX/resolve/main/onnx/model_q4.onnx',
-        filename: 'model_q4.onnx',
-        bytes: 428000000,
+            'https://github.com/frederico-kluser/offline-ai-mobile/releases/download/models-laya-typed-decisions-fp32-v1/laya-typed-decisions-fp32.onnx',
+        filename: 'model.onnx',
+        bytes: 1688700355,
+        sha256:
+            '0ef200f93f07fe1ea1a78d30d765384e53d1de17faee97a3f2f995e1be1d4d0b',
       ),
       RemoteFile(
         url:
-            'https://huggingface.co/m1rhan/laya-typed-decisions-ONNX/resolve/main/tokenizer.json',
+            'https://huggingface.co/convaiinnovations/laya-typed-decisions/resolve/main/tokenizer/tokenizer.json',
         filename: 'tokenizer.json',
-        bytes: 2000000,
+        bytes: 3583228,
+        sha256:
+            '6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30',
       ),
       RemoteFile(
         url:
-            'https://huggingface.co/m1rhan/laya-typed-decisions-ONNX/resolve/main/tokenizer_config.json',
+            'https://huggingface.co/convaiinnovations/laya-typed-decisions/resolve/main/tokenizer/tokenizer_config.json',
         filename: 'tokenizer_config.json',
-        bytes: 20000,
+        bytes: 337,
+        sha256:
+            '08d4cf3ac4dca381759441b85b91a6d40e688471dcd33d15d6649eb0a9a854d1',
       ),
       RemoteFile(
         url:
-            'https://huggingface.co/m1rhan/laya-typed-decisions-ONNX/resolve/main/config.json',
-        filename: 'config.json',
-        bytes: 10000,
+            'https://huggingface.co/convaiinnovations/laya-typed-decisions/resolve/main/rl_agent_config.json',
+        filename: 'rl_agent_config.json',
+        bytes: 847,
+        sha256:
+            'ebf0cd524d92342a6be5e48e9fca3d7c2babfb5a56ccd79d2171ef5d8c7f7be8',
       ),
     ],
   ),

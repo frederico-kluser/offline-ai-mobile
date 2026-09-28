@@ -125,6 +125,16 @@ class DownloadManager {
           if (await target.exists()) await target.delete();
           await part.rename(target.path);
         }
+        // Limpeza de ficheiros órfãos do diretório do artefacto (ex.: o kit 4-bit
+        // antigo, `model_q4.onnx`, após a troca para o export fp32) — só depois
+        // de a instalação estar completa; `.part` de downloads cancelados também
+        // sai aqui. O diretório é gerido pela app.
+        final keep = {for (final f in a.files) f.filename};
+        await for (final entity in dir.list()) {
+          if (entity is File && !keep.contains(entity.uri.pathSegments.last)) {
+            await entity.delete();
+          }
+        }
         emit(DownloadState.done, 1.0, 'instalado');
         await ctrl.close();
       } catch (e) {

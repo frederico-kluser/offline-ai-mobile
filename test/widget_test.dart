@@ -72,7 +72,7 @@ void main() {
     expect(find.text('Destino dos modelos').hitTestable(), findsOneWidget);
     expect(
         find.text('MiniCPM5-2B · GGUF Q8_0').hitTestable(), findsOneWidget);
-    expect(find.text('Laya typed-decisions · ONNX 4-bit').hitTestable(),
+    expect(find.text('Laya typed-decisions oficial · ONNX fp32').hitTestable(),
         findsOneWidget);
 
     // Browser (cartão de entrada da feature de browser embutido).

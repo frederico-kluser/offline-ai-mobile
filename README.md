@@ -21,7 +21,7 @@ descarrega-os por botão para a pasta privada.
 | **Prompts** | banco de testes: system/user prompt, execução, métricas (tokens, latência, motivo de paragem, fingerprint), histórico com diff golden byte-a-byte |
 | **Laya** | templates de decisões tipadas editáveis (roteamento PT/EN, guardrails de agente, verificação de negação), execução com probabilidades e confiança, config do motor |
 | **LLM + Tools** | configuração completa do MiniCPM5-2B (validada por regras) e demo de tool calling multi-passo com timeline de passos e cortes de guardrail visíveis |
-| **Modelos** | descarregar / verificar / apagar artefactos (GGUF Q4_K_M, Q5_K_M e Q8_0 do MiniCPM5-2B; kit ONNX 4-bit do Laya) |
+| **Modelos** | descarregar / verificar / apagar artefactos (GGUF Q4_K_M, Q5_K_M e Q8_0 do MiniCPM5-2B; kit ONNX fp32 do Laya) |
 | **Browser** | browser embutido em tela inteira controlado por 3 caminhos: teclas flutuantes (humano), piloto Laya (decisão tipada) e agente MiniCPM5-2B (tool calling) — feature de teste; ver `pesquisas/2026-09-27-browser-embutido/NOTAS-CONHECIMENTO.md` |
 
 ## Determinismo e anti-loops (o cerne)
@@ -73,13 +73,15 @@ saída do loop).
 | Artefacto | Tamanho | Notas |
 | --- | --- | --- |
 | MiniCPM5-2B GGUF **Q8_0** | 2,68 GB | **único — o melhor**: qualidade ≈F16 (tabela oficial OpenBMB), thinking fiável; ~3,5 GB em RAM a 8k |
-| Laya typed-decisions **ONNX 4-bit** | 428 MB | head fundida (5 inputs → logits + act_logits) + tokenizer WordPiece |
+| Laya typed-decisions oficial · **ONNX fp32** | 1,69 GB | checkpoint oficial Convai sem compressão; head fundida (5 inputs → logits + act_logits) + tokenizer BPE ByteLevel |
 
 Atenção ao **KV cache** (~42 KB/token neste modelo): 131k de contexto exigiriam
 ~5,5 GB só de KV — a app usa 8k–16k por defeito. Evitar quantizações ≤ Q3_K
 (colapso medido de qualidade). Fontes: [bartowski/MiniCPM5-2B-GGUF](https://huggingface.co/bartowski/MiniCPM5-2B-GGUF),
 [openbmb/MiniCPM5-2B-GGUF](https://huggingface.co/openbmb/MiniCPM5-2B-GGUF),
-[m1rhan/laya-typed-decisions-ONNX](https://huggingface.co/m1rhan/laya-typed-decisions-ONNX).
+[convaiinnovations/laya-typed-decisions](https://huggingface.co/convaiinnovations/laya-typed-decisions)
+(checkpoint oficial) e o [release `models-laya-typed-decisions-fp32-v1`](https://github.com/frederico-kluser/offline-ai-mobile/releases/tag/models-laya-typed-decisions-fp32-v1)
+(export ONNX fp32 gerado por `tools/laya_export_fp32.py`).
 
 ## Build (Android)
 

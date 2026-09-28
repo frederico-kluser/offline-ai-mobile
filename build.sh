@@ -60,6 +60,11 @@ fi
 echo "== flutter pub get =="
 flutter pub get >/dev/null
 
+# AGP 9: correção do flutter_inappwebview_android no pub cache (idempotente;
+# necessária em CADA máquina — ver tools/patch_inappwebview_agp9.sh).
+echo "== patch AGP 9 (flutter_inappwebview_android) =="
+bash tools/patch_inappwebview_agp9.sh
+
 echo "== app =="
 case "$(uname -s)" in
   Darwin)

@@ -260,8 +260,9 @@ class LayaConfig {
   /// medir é obrigatório — doc §13 e dossiê Q6).
   final String executionProvider;
 
-  /// Comprimento máx. de tokens do estado (1024 no typed-decisions; o doc
-  /// recomenda estados ≤512 tok).
+  /// Comprimento máx. de tokens do estado (`max_len` da calibração oficial do
+  /// typed-decisions = 1024; o doc recomenda estados ≤512 tok — baixa aqui se
+  /// quiseres decisões mais rápidas).
   final int maxStateTokens;
 
   /// Truncagem de `state` em caracteres (contagem fina é do tokenizer).
@@ -270,7 +271,7 @@ class LayaConfig {
   const LayaConfig({
     this.threads = 4,
     this.executionProvider = 'xnnpack',
-    this.maxStateTokens = 512,
+    this.maxStateTokens = 1024,
     this.maxStateChars = 2000,
   });
 
@@ -297,7 +298,7 @@ class LayaConfig {
   factory LayaConfig.fromJson(Map<String, dynamic> j) => LayaConfig(
         threads: (j['threads'] as num?)?.toInt() ?? 4,
         executionProvider: j['execution_provider'] as String? ?? 'xnnpack',
-        maxStateTokens: (j['max_state_tokens'] as num?)?.toInt() ?? 512,
+        maxStateTokens: (j['max_state_tokens'] as num?)?.toInt() ?? 1024,
         maxStateChars: (j['max_state_chars'] as num?)?.toInt() ?? 2000,
       );
 }

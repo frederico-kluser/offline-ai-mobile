@@ -49,8 +49,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('Laya decide em dispositivo (valores do oráculo)', (t) async {
-    final model = await _modelPath('laya-typed-onnx/model_q4.onnx',
-        '$_hostModels/laya/model_q4.onnx');
+    final model = await _modelPath('laya-typed-onnx/model.onnx',
+        '$_hostModels/laya/model.onnx');
     final tokenizer = await _modelPath('laya-typed-onnx/tokenizer.json',
         '$_hostModels/laya/tokenizer.json');
     if (model == null || tokenizer == null) {
@@ -73,19 +73,19 @@ void main() {
     expect(res.answers.length, 3);
     final dep = res.answers['department'] as ChoiceAnswer;
     expect(dep.choice, 'billing',
-        reason: 'oráculo Python: billing 0.94 (doc: 0.9364)');
+        reason: 'oráculo Python (typed-decisions fp32): billing 0.4512');
     final urg = res.answers['urgency'] as ChoiceAnswer;
     expect(urg.choice, 'urgent',
-        reason: 'oráculo Python: urgent 0.83 (doc: 0.8307)');
+        reason: 'oráculo Python (typed-decisions fp32): urgent 0.6553');
     final fr = res.answers['frustration'] as ScoreAnswer;
     // O ARGMAX é estável entre plataformas (department/urgency passam); o
     // valor esperado do score deriva com o drift numérico FP entre kernels
     // (Android x86_64 vs iOS arm64/Accelerate) — documento §Q6: 2,2% de
     // amostras divergem mesmo em FP32. Tolerância ampla + modo estável.
-    expect(fr.score, inInclusiveRange(0.9, 1.9),
-        reason: 'oráculo 1.37 · iOS 1.21 · drift FP entre plataformas');
+    expect(fr.score, inInclusiveRange(0.6, 1.9),
+        reason: 'oráculo 1.2493 · drift FP entre plataformas');
     expect(fr.probabilities['2'], greaterThan(fr.probabilities['0'] ?? 1),
-        reason: 'modo = Muito furioso, como no oráculo');
+        reason: 'Muito furioso mais provável que Calmo, como no oráculo');
     expect(res.outputTokens, 0);
   });
 

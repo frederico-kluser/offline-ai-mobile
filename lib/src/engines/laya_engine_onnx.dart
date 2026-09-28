@@ -1,9 +1,12 @@
-/// Motor do Laya sobre `model_q4.onnx` (decisor tipado ONNX 4-bit, head fundida).
+/// Motor do Laya sobre `model.onnx` (decisor tipado ONNX fp32, head fundida).
 ///
 /// Contrato: [LayaEngine] (`laya_engine.dart`) — `load()` cria a sessão ONNX sobre
-/// `model_q4.onnx` com `onnxruntime_v2` (EP **CPU**; o artefacto usa `MatMulNBits`
-/// contrib-op, por isso nada de NNAPI/QNN — ver `tools/specs/laya-encoding.md` §8),
-/// `decide()` monta os tensores e decodifica para [LayaResponse].
+/// `model.onnx` com `onnxruntime_v2` (EP **CPU** — ver `tools/specs/laya-encoding.md`
+/// §8), `decide()` monta os tensores e decodifica para [LayaResponse].
+///
+/// Artefacto: export fp32 (~1,69 GB) do checkpoint OFICIAL
+/// `convaiinnovations/laya-typed-decisions` (gerado por `tools/laya_export_fp32.py`),
+/// sem quantização — substitui o antigo `model_q4.onnx` de terceiros (4-bit).
 ///
 /// **Fora da UI thread**: tokenização, montagem de tensores, `run` e decode correm
 /// num Isolate persistente criado em `load()`; o isolate da UI só troca mensagens
@@ -27,16 +30,17 @@ import '../domain/llm_config.dart';
 import '../laya/wordpiece_tokenizer.dart';
 import 'laya_engine.dart';
 
-/// Orçamento do head (opções + cabeçalho curto), em tokens — `head_max_len` da
-/// calibração do checkpoint (spec §3).
-const int layaHeadMaxLen = 192;
+/// Orçamento do head (opções + cabeçalho curto), em tokens — `head_max_len` do
+/// `rl_agent_config.json` do checkpoint oficial (spec §3).
+const int layaHeadMaxLen = 256;
 
-/// Temperaturas calibradas do checkpoint (`laya_config.json`), por índice de qtype
-/// (0=choice, 1=score, 2=noul) — spec §6.
+/// Temperaturas calibradas do checkpoint oficial
+/// (`convaiinnovations/laya-typed-decisions/rl_agent_config.json`), por índice de
+/// qtype (0=choice, 1=score, 2=noul) — spec §6.
 const List<double> _kTemperature = [
-  1.6369030475616455,
-  1.2514300346374512,
-  1.983399510383606,
+  1.0148024559020996,
+  1.0374259948730469,
+  1.0575125217437744,
 ];
 
 /// Temperaturas por bucket `"qtype:size"` (`2`, `3-5`, `6-10`, `11+`) — spec §6.
@@ -333,17 +337,18 @@ Object _workerLoad(
       ..setIntraOpNumThreads(cmd.config.threads)
       ..setInterOpNumThreads(1)
       ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
-    // EP CPU apenas (spec §8): MatMulNBits não é acelerado por NNAPI/QNN/CoreML
-    // e particionamentos heterogéneos só custam cópias. Não é usado nenhum EP de
-    // hardware — o default do ORT é o CPU EP.
+    // EP CPU apenas (spec §8): determinismo primeiro. O grafo fp32 não depende de
+    // contrib-ops (ao contrário do antigo MatMulNBits), mas NNAPI/QNN/CoreML
+    // particionam o grafo e variam numericamente entre devices — CPU EP é o
+    // ground truth de determinismo (escopo: "mais determinismo que liberdade").
     final session = OrtSession.fromFile(File(cmd.modelPath), options);
     options.release();
     onReady(tokenizer, session, OrtEnv.instance);
     return const _Ok();
   } catch (e) {
-    // Caso §8.1 da spec: o runtime não carregou o artefacto (p.ex. contrib-ops
-    // MatMulNBits em falta). O erro exato do ORT segue para decide().
-    return _Err('model_q4.onnx não carregou no ONNX Runtime: $e');
+    // Caso §8.1 da spec: o runtime não carregou o artefacto (p.ex. build mínima
+    // incompleta). O erro exato do ORT segue para decide().
+    return _Err('modelo ONNX não carregou no ONNX Runtime: $e');
   }
 }
 
@@ -362,6 +367,10 @@ Object _workerDecide(LayaRequest request, LayaTokenizer tokenizer,
 
   for (final question in request.questions) {
     final q = _toInternal(question);
+    if (q.options.length < 2) {
+      throw StateError('pergunta ${question.id}: o decisor precisa de pelo '
+          'menos 2 opções/marcadores (K=${q.options.length})');
+    }
     final built = _buildSequence(
       tokenizer: tokenizer,
       state: state,
@@ -490,8 +499,8 @@ _Decoded _runAndDecode({
 }) {
   final l = ids.length;
   final k = markers.length;
-  if (k < 1 || l < 2) {
-    throw StateError('sequência inválida: L=$l, K=$k');
+  if (k < 2 || l < 4) {
+    throw StateError('sequência inválida: L=$l, K=$k (mínimo K=2)');
   }
   final inputs = <String, OrtValue>{
     'input_ids': OrtValueTensor.createTensorWithDataList(ids, [1, l]),
