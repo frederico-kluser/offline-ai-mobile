@@ -90,8 +90,8 @@ void main() {
   });
 
   testWidgets('MiniCPM5-2B gera texto com a receita anti-loop', (t) async {
-    final model = await _modelPath('minicpm5-q4km/MiniCPM5-2B-Q4_K_M.gguf',
-        '$_hostModels/MiniCPM5-2B-Q4_K_M.gguf');
+    final model = await _modelPath('minicpm5-q80/MiniCPM5-2B-Q8_0.gguf',
+        '$_hostModels/MiniCPM5-2B-Q8_0.gguf');
     if (model == null) {
       // ignore: avoid_print
       print('SKIP llm: modelo não instalado');
@@ -120,7 +120,7 @@ void main() {
     final end = events.whereType<GenEnd>().single;
     expect(deltas, isNotEmpty, reason: 'o modelo tem de gerar texto');
     // Detector de texto degenerado (mojibake): o Metal do b11217 corrompe a
-    // geracao do MiniCPM5-2B Q4_K_M e o output "passava" em isNotEmpty.
+    // geracao do MiniCPM5-2B Q8_0 e o output "passava" em isNotEmpty.
     final degenerate = RegExp(r"[一-鿿Ѐ-ӿ぀-ヿ฀-๿]");
     expect(degenerate.allMatches(deltas).length, 0,
         reason: "texto degenerado (bloco CJK/Cirilico/Kana) — regressao de qualidade");
@@ -131,8 +131,8 @@ void main() {
   });
 
   testWidgets('ToolLoop completa SEM loop (guardrails)', (t) async {
-    final model = await _modelPath('minicpm5-q4km/MiniCPM5-2B-Q4_K_M.gguf',
-        '$_hostModels/MiniCPM5-2B-Q4_K_M.gguf');
+    final model = await _modelPath('minicpm5-q80/MiniCPM5-2B-Q8_0.gguf',
+        '$_hostModels/MiniCPM5-2B-Q8_0.gguf');
     if (model == null) {
       // ignore: avoid_print
       print('SKIP toolloop: modelo não instalado');
@@ -165,7 +165,7 @@ void main() {
     expect(r.stopReason, isNot(StopReason.maxSteps));
     expect(r.answer, isNotEmpty);
     // Detector de texto degenerado (mojibake): o Metal do b11217 corrompe a
-    // geracao do MiniCPM5-2B Q4_K_M e o output "passava" em isNotEmpty.
+    // geracao do MiniCPM5-2B Q8_0 e o output "passava" em isNotEmpty.
     final degenerate = RegExp(r"[一-鿿Ѐ-ӿ぀-ヿ฀-๿]");
     expect(degenerate.allMatches(r.answer).length, 0,
         reason: "texto degenerado (bloco CJK/Cirilico/Kana) — regressao de qualidade");

@@ -56,50 +56,16 @@ class ModelArtifact {
   }
 }
 
-/// Recomendação para 8 GB de RAM: Q4_K_M (download 1,62 GB; ~2,3 GB em RAM com
-/// contexto 8k). Q5_K_M se a qualidade pesar mais; Q8_0 para máxima qualidade.
-/// EVITAR ≤Q3_K (colapso de qualidade medido — dossiê Q3).
+/// MODELO ÚNICO — apenas o melhor (filosofia: qualidade acima de tudo):
+/// Q8_0 ≈ F16 (tabela oficial OpenBMB: "~indistinguishable from F16") e pensado
+/// para o modo thinking (int4 não fecha raciocínios longos; int8 fecha).
+/// ~2,7 GB em disco; ~3,5 GB em RAM a contexto 8k — confortável em 8 GB.
 final List<ModelArtifact> kModelCatalog = [
-  const ModelArtifact(
-    id: 'minicpm5-q4km',
-    label: 'MiniCPM5-2B · GGUF Q4_K_M',
-    description: 'LLM local (tool calling + thinking). Recomendado para 8 GB '
-        'de RAM: 1,62 GB em disco, ~2,3 GB em RAM a 8k de contexto. '
-        'Contexto prático 8k–16k (o KV cache custa ~42 KB/token).',
-    kind: 'llm-gguf',
-    localDirName: 'models/minicpm5-q4km',
-    mainFilename: 'MiniCPM5-2B-Q4_K_M.gguf',
-    files: [
-      RemoteFile(
-        url:
-            'https://huggingface.co/bartowski/MiniCPM5-2B-GGUF/resolve/main/MiniCPM5-2B-Q4_K_M.gguf',
-        filename: 'MiniCPM5-2B-Q4_K_M.gguf',
-        bytes: 1620000000,
-      ),
-    ],
-  ),
-  const ModelArtifact(
-    id: 'minicpm5-q5km',
-    label: 'MiniCPM5-2B · GGUF Q5_K_M',
-    description: 'Mais qualidade que o Q4_K_M (quase sem perdas face ao F16). '
-        'Cabe em 8 GB se o contexto ficar ≤8k.',
-    kind: 'llm-gguf',
-    localDirName: 'models/minicpm5-q5km',
-    mainFilename: 'MiniCPM5-2B-Q5_K_M.gguf',
-    files: [
-      RemoteFile(
-        url:
-            'https://huggingface.co/bartowski/MiniCPM5-2B-GGUF/resolve/main/MiniCPM5-2B-Q5_K_M.gguf',
-        filename: 'MiniCPM5-2B-Q5_K_M.gguf',
-        bytes: 1920000000,
-      ),
-    ],
-  ),
   const ModelArtifact(
     id: 'minicpm5-q80',
     label: 'MiniCPM5-2B · GGUF Q8_0',
-    description: 'Qualidade máxima quantizada (2,68 GB). Com contexto longo o '
-        'KV cache empurra o total para >5 GB — usar só com contexto médio.',
+    description: 'O MELHOR: qualidade ≈F16 (tabela oficial OpenBMB), thinking '
+        'fiável. ~2,7 GB em disco; ~3,5 GB em RAM a contexto 8k.',
     kind: 'llm-gguf',
     localDirName: 'models/minicpm5-q80',
     mainFilename: 'MiniCPM5-2B-Q8_0.gguf',

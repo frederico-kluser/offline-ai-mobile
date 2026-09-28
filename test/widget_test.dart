@@ -71,7 +71,7 @@ void main() {
     expect(_selectedIndex(tester), 3);
     expect(find.text('Destino dos modelos').hitTestable(), findsOneWidget);
     expect(
-        find.text('MiniCPM5-2B · GGUF Q4_K_M').hitTestable(), findsOneWidget);
+        find.text('MiniCPM5-2B · GGUF Q8_0').hitTestable(), findsOneWidget);
     expect(find.text('Laya typed-decisions · ONNX 4-bit').hitTestable(),
         findsOneWidget);
   });
@@ -113,7 +113,7 @@ void main() {
     await _tapDestination(tester, 'Modelos');
     // Sem plugin de ficheiros em testes: mostra o destino em falta sem crash.
     expect(find.textContaining('indisponível').hitTestable(), findsWidgets);
-    expect(find.text('Descarregar').hitTestable(), findsNWidgets(4));
+    expect(find.text('Descarregar').hitTestable(), findsNWidgets(2)); // Q8_0 + kit Laya
   });
 
   test('AppStore persiste configuração, corridas e goldens', () async {

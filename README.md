@@ -71,9 +71,7 @@ saída do loop).
 
 | Artefacto | Tamanho | Notas |
 | --- | --- | --- |
-| MiniCPM5-2B GGUF **Q4_K_M** | 1,62 GB | recomendado para 8 GB de RAM (~2,3 GB em RAM a 8k de contexto) |
-| MiniCPM5-2B GGUF **Q5_K_M** | 1,92 GB | mais qualidade; contexto ≤8k |
-| MiniCPM5-2B GGUF **Q8_0** | 2,68 GB | qualidade máxima quantizada; cuidado com o KV cache |
+| MiniCPM5-2B GGUF **Q8_0** | 2,68 GB | **único — o melhor**: qualidade ≈F16 (tabela oficial OpenBMB), thinking fiável; ~3,5 GB em RAM a 8k |
 | Laya typed-decisions **ONNX 4-bit** | 428 MB | head fundida (5 inputs → logits + act_logits) + tokenizer WordPiece |
 
 Atenção ao **KV cache** (~42 KB/token neste modelo): 131k de contexto exigiriam
