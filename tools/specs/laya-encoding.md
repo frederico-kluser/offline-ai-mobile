@@ -264,5 +264,11 @@ State PT: `"Cliente: faturaram-me duas vezes o mesmo mês e ninguém responde ao
 `onnxruntime_v2`)**: 5/5 perguntas (3 EN + 2 PT) com `probabilities`, `choice`, `score`, `noul`,
 `confidence`, `answer_confidence`, `act_probability` **e `input_tokens`** idênticos ao oráculo
 Python (4 dp). O teste temporário foi removido depois da verificação (convenção desta secção);
-reproduzir com as fixtures acima. Verificação em device Android/iPhone continua obrigatória
-(§8.2 — **sem emulador Android**, restrição do utilizador).
+reproduzir com as fixtures acima.
+
+**2026-09-28, simulador iOS (macmini)**: `flutter test integration_test/ios_e2e_test.dart` **3/3
+verde** — "Laya decide em dispositivo (valores do oráculo)" passa com o artefacto fp32
+(`billing`/`urgent`, score 1.2493 dentro da tolerância) mais os gates MiniCPM5/ToolLoop.
+
+Verificação em device Android/iPhone físico continua obrigatória (§8.2 — **sem emulador Android**,
+restrição do utilizador).
