@@ -89,10 +89,13 @@ Atenção ao **KV cache** (~42 KB/token neste modelo): 131k de contexto exigiria
 # 1. Compilar o llama.cpp para Android (x86_64 do emulador + arm64-v8a)
 bash tools/llama_build.sh
 
-# 2. Build do APK
+# 2. Patch AGP 9 no pub cache (uma vez por máquina; o ./build.sh faz isto)
+bash tools/patch_inappwebview_agp9.sh
+
+# 3. Build do APK
 flutter build apk --release
 
-# 3. Instalar num emulador/dispositivo
+# 4. Instalar num emulador/dispositivo
 flutter install
 ```
 
