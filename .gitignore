@@ -62,3 +62,4 @@ tools/build-ios-*/
 
 # Build de experiência (matriz Metal)
 tools/llama.cpp-master/
+llmfit/
