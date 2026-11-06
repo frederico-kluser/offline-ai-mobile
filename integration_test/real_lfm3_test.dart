@@ -10,6 +10,7 @@ library;
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:integration_test/integration_test.dart';
@@ -110,6 +111,64 @@ void main() {
         await engine.unload();
         // ignore: avoid_print
         print('REAL: saida="$out" pt=${end?.promptTokens} '
+            'ot=${end?.outputTokens} ms=${end?.latencyMs} '
+            'stop=${end?.stopReason} err=${end?.error}');
+        expect(out.toString().trim(), isNotEmpty);
+        expect(end?.error, isNull);
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+    skip: !const bool.fromEnvironment('REAL_LFM3'),
+  );
+
+  testWidgets(
+    'LFM3-Audio-2B transcreve um WAV de fala',
+    (tester) async {
+      await tester.runAsync(() async {
+        final model =
+            await _download('LFM3-Audio-2B-Q4_K_M.gguf', 1099626016);
+        final mmproj =
+            await _download('mmproj-LFM3-Audio-2B-Q8_0.gguf', 303811840);
+        final docs = await getApplicationDocumentsDirectory();
+        final dir = Directory('${docs.path}/models-real');
+        await dir.create(recursive: true);
+        final wav = File('${dir.path}/hello_pt.wav');
+        final data = await rootBundle.load('assets/audio/hello_pt.wav');
+        await wav.writeAsBytes(data.buffer.asUint8List());
+
+        final engine = LlamaLfm3FfiEngine();
+        final config = LlmConfig.forProfile(Lfm3Profile.audioAsr).copyWith(
+          gpuLayers: 0,
+          contextSize: 1024,
+          maxTokens: 48,
+          maxThinkingTokens: 0,
+          enableThinking: false,
+        );
+        await engine.load(
+          modelPath: model.path,
+          config: config,
+          mmprojPath: mmproj.path,
+          kind: Lfm3ModelKind.audio,
+        );
+        // ignore: avoid_print
+        print('REAL AUDIO: carregado ${engine.info?.modelId}');
+
+        final out = StringBuffer();
+        GenEnd? end;
+        await for (final ev in engine.generate(
+          messages: const [
+            ChatMessage('user', 'Transcreve o áudio em português.'),
+          ],
+          media: [LlmMediaInput(kind: MediaKind.audio, path: wav.path)],
+          config: config,
+          maxTokensOverride: 48,
+        )) {
+          if (ev is GenDelta) out.write(ev.text);
+          if (ev is GenEnd) end = ev;
+        }
+        await engine.unload();
+        // ignore: avoid_print
+        print('REAL AUDIO: saida="$out" pt=${end?.promptTokens} '
             'ot=${end?.outputTokens} ms=${end?.latencyMs} '
             'stop=${end?.stopReason} err=${end?.error}');
         expect(out.toString().trim(), isNotEmpty);
