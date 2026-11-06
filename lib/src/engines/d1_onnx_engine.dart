@@ -509,13 +509,17 @@ Object _runOne({
   // linha zero quando não há features (o modelo ignora-a sem marcador).
   if (available.contains('image_features')) {
     inputs['image_features'] = OrtValueTensor.createTensorWithDataList(
-      imageFeatures.isEmpty ? List<double>.filled(2048, 0) : imageFeatures,
+      imageFeatures.isEmpty
+          ? Float32List(2048)
+          : Float32List.fromList(imageFeatures),
       [imageFeatures.isEmpty ? 1 : imageTokens, 2048],
     );
   }
   if (available.contains('audio_features')) {
     inputs['audio_features'] = OrtValueTensor.createTensorWithDataList(
-      audioFeatures.isEmpty ? List<double>.filled(2048, 0) : audioFeatures,
+      audioFeatures.isEmpty
+          ? Float32List(2048)
+          : Float32List.fromList(audioFeatures),
       [audioFeatures.isEmpty ? 1 : audioTokens, 2048],
     );
   }
