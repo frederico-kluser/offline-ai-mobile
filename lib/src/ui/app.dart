@@ -4,7 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../services/store.dart';
+import 'package:ab_core/ab_core.dart';
 import 'browser_tab.dart';
 import 'laya_tab.dart';
 import 'models_tab.dart';

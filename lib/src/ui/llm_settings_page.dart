@@ -6,7 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../domain/llm_config.dart';
+import 'package:ab_core/ab_core.dart';
 import 'common.dart';
 import 'llm_config_form.dart';
 

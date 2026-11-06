@@ -4,7 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../domain/llm_config.dart';
+import 'package:ab_core/ab_core.dart';
 
 /// Caixa de validação: violações a vermelho (bloqueiam execuções).
 class ValidationBox extends StatelessWidget {

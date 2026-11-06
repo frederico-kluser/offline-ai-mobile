@@ -1,0 +1,30 @@
+name: anonymous_browser_mobile
+description: "anonymous-browser v2 mobile: navegador anónimo com agente — decisão tipada (Jev online / Laya local) + texto (MiMo online / MiniCPM5-2B no telemóvel), gate humano fora de banda e handoff verificado. Segunda versão do projeto desktop anonymous-browser, no monorepo offline-ai-mobile."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Partilhado do monorepo.
+  ab_core:
+    path: ../../packages/ab_core
+  ab_browser:
+    path: ../../packages/ab_browser
+
+  crypto: ^3.0.6
+  http: ^1.2.2
+  path_provider: ^2.1.5
+  shared_preferences: ^2.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

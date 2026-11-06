@@ -4,8 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../domain/run_record.dart';
-import '../services/store.dart';
+import 'package:ab_core/ab_core.dart';
 import 'common.dart';
 
 class HistoryPage extends StatefulWidget {

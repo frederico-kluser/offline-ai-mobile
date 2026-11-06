@@ -19,15 +19,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../agent/tool_loop.dart';
-import '../browser/browser_action.dart';
-import '../browser/browser_controller.dart';
-import '../browser/browser_page_state.dart';
-import '../browser/browser_pilot.dart';
-import '../browser/browser_tools.dart';
-import '../browser/webview_browser_controller.dart';
-import '../domain/llm_config.dart';
-import '../services/store.dart';
+import 'package:ab_core/ab_core.dart';
+import 'package:ab_browser/ab_browser.dart';
 import 'app_services.dart';
 
 enum _InputMode { url, type, click, goal }

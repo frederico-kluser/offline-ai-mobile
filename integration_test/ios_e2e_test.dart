@@ -15,15 +15,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:offline_ai_mobile/src/agent/tool_loop.dart';
-import 'package:offline_ai_mobile/src/agent/tools.dart';
-import 'package:offline_ai_mobile/src/domain/laya_types.dart';
-import 'package:offline_ai_mobile/src/domain/llm_config.dart';
-import 'package:offline_ai_mobile/src/domain/templates.dart';
-import 'package:offline_ai_mobile/src/engines/laya_engine_onnx.dart';
-import 'package:offline_ai_mobile/src/engines/llm_engine.dart';
-import 'package:offline_ai_mobile/src/engines/llm_engine_llama.dart';
-import 'package:offline_ai_mobile/src/guardrails/loop_guard.dart';
+import 'package:ab_core/ab_core.dart';
 import 'package:path_provider/path_provider.dart';
 
 Future<String> _modelsDir() async {

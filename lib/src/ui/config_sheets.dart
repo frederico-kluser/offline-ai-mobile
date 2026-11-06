@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../services/store.dart';
+import 'package:ab_core/ab_core.dart';
 import 'llm_config_form.dart';
 
 /// Abre a configuração completa do LLM (todos os campos + validação).

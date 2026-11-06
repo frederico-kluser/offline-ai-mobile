@@ -4,7 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'src/services/store.dart';
+import 'package:ab_core/ab_core.dart';
 import 'src/ui/app.dart';
 
 Future<void> main() async {

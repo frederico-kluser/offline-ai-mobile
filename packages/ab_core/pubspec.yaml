@@ -1,0 +1,20 @@
+name: ab_core
+description: "Núcleo partilhado do monorepo offline-ai-mobile: domínio (decisões tipadas, config determinística), motores (llama.cpp FFI do MiniCPM5-2B, ONNX Runtime do Laya), tokenizador, agente (chat template + tool loop + ferramentas), guardrails determinísticas e serviços (catálogo/download de modelos, store)."
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.6
+  http: ^1.2.2
+  shared_preferences: ^2.3.3
+  onnxruntime_v2: ^1.23.2+2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

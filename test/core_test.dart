@@ -3,11 +3,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart' hide Tags;
-import 'package:offline_ai_mobile/src/agent/minicpm5_chat.dart';
-import 'package:offline_ai_mobile/src/agent/tools.dart';
-import 'package:offline_ai_mobile/src/domain/llm_config.dart';
-import 'package:offline_ai_mobile/src/domain/tool_spec.dart';
-import 'package:offline_ai_mobile/src/guardrails/loop_guard.dart';
+import 'package:ab_core/ab_core.dart';
 
 class _Key implements ToolCallKey {
   @override

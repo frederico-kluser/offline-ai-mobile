@@ -7,15 +7,8 @@ import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:offline_ai_mobile/src/browser/browser_action.dart';
-import 'package:offline_ai_mobile/src/browser/browser_bridge_js.dart';
-import 'package:offline_ai_mobile/src/browser/browser_controller.dart';
-import 'package:offline_ai_mobile/src/browser/browser_page_state.dart';
-import 'package:offline_ai_mobile/src/browser/browser_pilot.dart';
-import 'package:offline_ai_mobile/src/browser/browser_tools.dart';
-import 'package:offline_ai_mobile/src/domain/laya_types.dart';
-import 'package:offline_ai_mobile/src/domain/llm_config.dart';
-import 'package:offline_ai_mobile/src/engines/laya_engine.dart';
+import 'package:ab_browser/ab_browser.dart';
+import 'package:ab_core/ab_core.dart';
 
 class _FakeBrowser implements BrowserController {
   final List<BrowserAction> executed = [];

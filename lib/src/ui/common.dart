@@ -7,7 +7,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../domain/laya_types.dart';
+import 'package:ab_core/ab_core.dart';
 
 /// Mensagem rápida de erro/estado — TODOS os erros da app passam por aqui.
 void showSnack(BuildContext context, String message, {bool error = false}) {

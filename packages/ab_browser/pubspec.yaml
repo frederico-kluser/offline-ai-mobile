@@ -1,0 +1,19 @@
+name: ab_browser
+description: "Camada de browser partilhada do monorepo: vocabulário fechado de ações, snapshot compacto da página (refs estáveis docId/refEpoch), ponte JS (window.__oai), controlador WebView (flutter_inappwebview), piloto Laya e ferramentas browser_* para o tool loop."
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_inappwebview: ^6.1.5
+  ab_core:
+    path: ../ab_core
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

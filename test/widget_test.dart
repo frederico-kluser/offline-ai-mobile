@@ -6,9 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:offline_ai_mobile/src/domain/llm_config.dart';
-import 'package:offline_ai_mobile/src/domain/run_record.dart';
-import 'package:offline_ai_mobile/src/services/store.dart';
+import 'package:ab_core/ab_core.dart';
 import 'package:offline_ai_mobile/src/ui/app.dart';
 import 'package:offline_ai_mobile/src/ui/prompts_tab.dart';
 
