@@ -12,12 +12,17 @@
 library;
 
 import 'dart:async';
+import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:ffi/ffi.dart';
 import 'package:onnxruntime_v2/onnxruntime_v2.dart';
+// ignore: implementation_imports
+import 'package:onnxruntime_v2/src/bindings/onnxruntime_bindings_generated.dart'
+    as bg;
 
 import '../domain/d1_decision_types.dart';
 import '../domain/llm_config.dart';
@@ -508,20 +513,20 @@ Object _runOne({
   // exige o tensor e o ORT não aceita shape [0,2048], por isso usa-se uma
   // linha zero quando não há features (o modelo ignora-a sem marcador).
   if (available.contains('image_features')) {
-    inputs['image_features'] = OrtValueTensor.createTensorWithDataList(
-      imageFeatures.isEmpty
-          ? Float32List(2048)
-          : Float32List.fromList(imageFeatures),
-      [imageFeatures.isEmpty ? 1 : imageTokens, 2048],
-    );
+    inputs['image_features'] = imageFeatures.isEmpty
+        ? _emptyFloatTensor(const [0, 2048])
+        : OrtValueTensor.createTensorWithDataList(
+            Float32List.fromList(imageFeatures),
+            [imageTokens, 2048],
+          );
   }
   if (available.contains('audio_features')) {
-    inputs['audio_features'] = OrtValueTensor.createTensorWithDataList(
-      audioFeatures.isEmpty
-          ? Float32List(2048)
-          : Float32List.fromList(audioFeatures),
-      [audioFeatures.isEmpty ? 1 : audioTokens, 2048],
-    );
+    inputs['audio_features'] = audioFeatures.isEmpty
+        ? _emptyFloatTensor(const [0, 2048])
+        : OrtValueTensor.createTensorWithDataList(
+            Float32List.fromList(audioFeatures),
+            [audioTokens, 2048],
+          );
   }
 
   if (!available.contains('input_ids') ||
@@ -579,6 +584,38 @@ Object _runOne({
     for (final v in inputs.values) {
       v.release();
     }
+  }
+}
+
+/// Cria um tensor float32 vazio (`[0,2048]`) — o `createTensorWithDataList` do
+/// onnxruntime_v2 não aceita listas vazias e o decoder d1 exige o input.
+OrtValueTensor _emptyFloatTensor(List<int> shape) {
+  final shapePtr = calloc<ffi.Int64>(shape.length);
+  for (var i = 0; i < shape.length; i++) {
+    shapePtr[i] = shape[i];
+  }
+  final out = calloc<ffi.Pointer<bg.OrtValue>>();
+  try {
+    final status = OrtEnv.instance.ortApiPtr.ref.CreateTensorAsOrtValue
+        .asFunction<
+            bg.OrtStatusPtr Function(
+              ffi.Pointer<bg.OrtAllocator>,
+              ffi.Pointer<ffi.Int64>,
+              int,
+              int,
+              ffi.Pointer<ffi.Pointer<bg.OrtValue>>,
+            )>()(
+      OrtAllocator.instance.ptr,
+      shapePtr,
+      shape.length,
+      1, // ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT
+      out,
+    );
+    OrtStatus.checkOrtStatus(status);
+    return OrtValueTensor.fromAddress(out.value.address);
+  } finally {
+    calloc.free(shapePtr);
+    calloc.free(out);
   }
 }
 
