@@ -7,6 +7,7 @@
 library;
 
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -41,6 +42,24 @@ Future<File> _download(String remote, int bytes) async {
   if (length != bytes) {
     throw StateError('$name tem $length bytes; esperado $bytes');
   }
+  return file;
+}
+
+Future<File> _redImage() async {
+  final docs = await getApplicationDocumentsDirectory();
+  final dir = Directory('${docs.path}/models-real-d1');
+  await dir.create(recursive: true);
+  final file = File('${dir.path}/red.png');
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.drawRect(
+    const ui.Rect.fromLTWH(0, 0, 64, 64),
+    ui.Paint()..color = const ui.Color(0xFFFF0000),
+  );
+  final image = await recorder.endRecording().toImage(64, 64);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  await file.writeAsBytes(data!.buffer.asUint8List());
+  image.dispose();
   return file;
 }
 
@@ -90,6 +109,55 @@ void main() {
         expect(answer, isA<D1NoulAnswer>());
         expect(response.inputTokens, greaterThan(0));
         expect(response.engine, 'd1-onnx');
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+    skip: !const bool.fromEnvironment('REAL_D1'),
+  );
+
+  testWidgets(
+    'd1-2B ONNX usa image_features numa pergunta visual',
+    (tester) async {
+      await tester.runAsync(() async {
+        final decoder = await _download('onnx/decoder_q4.onnx', 358945);
+        await _download('onnx/decoder_q4.onnx_data', 1741806592);
+        final vision =
+            await _download('onnx/vision_encoder_q8.onnx', 126353);
+        await _download('onnx/vision_encoder_q8.onnx_data', 196153344);
+        final tokenizer = await _download('tokenizer.json', 17908258);
+        final processor = await _download('processor_config.json', 1254);
+        final image = await _redImage();
+
+        final engine = D1OnnxEngine();
+        await engine.load(
+          paths: D1ModelPaths(
+            decoderPath: decoder.path,
+            decoderDataPath: '${decoder.parent.path}/decoder_q4.onnx_data',
+            visionEncoderPath: vision.path,
+            tokenizerPath: tokenizer.path,
+            processorConfigPath: processor.path,
+          ),
+          config: const D1Config(threads: 2, maxStateTokens: 2048),
+        );
+        final response = await engine.decide(D1Request(
+          state: 'A imagem é uma cor sólida.',
+          media: [D1Media(kind: D1MediaKind.image, path: image.path)],
+          questions: const [
+            D1NoulQuestion(
+              id: 'red',
+              instructions: 'A imagem é vermelha?',
+              trueCriteria: 'sim, vermelha',
+              falseCriteria: 'não é vermelha',
+            ),
+          ],
+        ));
+        await engine.unload();
+        final answer = response.answers['red'];
+        // ignore: avoid_print
+        print('D1 IMAGE: $answer input_tokens=${response.inputTokens} '
+            'latency=${response.latencyMs}');
+        expect(answer, isA<D1NoulAnswer>());
+        expect(response.inputTokens, greaterThan(0));
       });
     },
     timeout: const Timeout(Duration(minutes: 20)),
