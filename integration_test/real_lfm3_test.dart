@@ -20,6 +20,7 @@ import 'package:offline_ai_mobile/src/domain/llm_config.dart';
 import 'package:offline_ai_mobile/src/domain/media_attachment.dart';
 import 'package:offline_ai_mobile/src/engines/llama_lfm3_ffi_engine.dart';
 import 'package:offline_ai_mobile/src/engines/llm_engine.dart';
+import 'package:offline_ai_mobile/src/services/media_preprocessor.dart';
 
 const _base =
     'https://github.com/frederico-kluser/lfm3-mobile-models/releases/download/'
@@ -53,12 +54,13 @@ Future<File> _download(String name, int bytes) async {
   return file;
 }
 
-Future<File> _redVideo() async {
+Future<File> _redVideo({bool audio = false}) async {
   final docs = await getApplicationDocumentsDirectory();
   final dir = Directory('${docs.path}/models-real');
   await dir.create(recursive: true);
-  final file = File('${dir.path}/red.mp4');
-  final data = await rootBundle.load('assets/video/red.mp4');
+  final file = File('${dir.path}/${audio ? 'red_audio' : 'red'}.mp4');
+  final data = await rootBundle.load(
+      audio ? 'assets/video/red_audio.mp4' : 'assets/video/red.mp4');
   await file.writeAsBytes(data.buffer.asUint8List());
   return file;
 }
@@ -284,6 +286,65 @@ void main() {
         await engine.unload();
         // ignore: avoid_print
         print('REAL VIDEO: saida="$out" pt=${end?.promptTokens} '
+            'ot=${end?.outputTokens} ms=${end?.latencyMs} '
+            'stop=${end?.stopReason} err=${end?.error}');
+        expect(out.toString().trim(), isNotEmpty);
+        expect(end?.error, isNull);
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+    skip: !const bool.fromEnvironment('REAL_LFM3'),
+  );
+
+  testWidgets(
+    'LFM3-Omni-2B vê o vídeo e ouve a banda sonora',
+    (tester) async {
+      await tester.runAsync(() async {
+        final video = await _redVideo(audio: true);
+        final prepared =
+            await const MediaPreprocessor().prepareVideo(video.path);
+        // ignore: avoid_print
+        print('REAL OMNI: frames=${prepared.frames.length} '
+            'samples=${prepared.soundtrack?.samples.length}');
+        expect(prepared.soundtrack, isNotNull);
+
+        final model =
+            await _download('LFM3-Omni-2B-Q4_K_M.gguf', 1099630080);
+        final mmproj = await _download(
+            'mmproj-LFM3-Omni-2B-Q4_K_M.gguf', 291586720);
+        final engine = LlamaLfm3FfiEngine();
+        final config = LlmConfig.forProfile(Lfm3Profile.omni).copyWith(
+          gpuLayers: 0,
+          contextSize: 2048,
+          maxTokens: 32,
+          maxThinkingTokens: 0,
+          enableThinking: false,
+          imageMaxTokens: 256,
+          videoFps: 2,
+        );
+        await engine.load(
+          modelPath: model.path,
+          config: config,
+          mmprojPath: mmproj.path,
+          kind: Lfm3ModelKind.omni,
+        );
+        final out = StringBuffer();
+        GenEnd? end;
+        await for (final ev in engine.generate(
+          messages: const [
+            ChatMessage('user',
+                'Descreve o vídeo e o som numa frase curta em português.'),
+          ],
+          media: [LlmMediaInput(kind: MediaKind.video, path: video.path)],
+          config: config,
+          maxTokensOverride: 32,
+        )) {
+          if (ev is GenDelta) out.write(ev.text);
+          if (ev is GenEnd) end = ev;
+        }
+        await engine.unload();
+        // ignore: avoid_print
+        print('REAL OMNI: saida="$out" pt=${end?.promptTokens} '
             'ot=${end?.outputTokens} ms=${end?.latencyMs} '
             'stop=${end?.stopReason} err=${end?.error}');
         expect(out.toString().trim(), isNotEmpty);

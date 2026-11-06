@@ -70,7 +70,7 @@ import os
 
   private var mediaChannel: FlutterMethodChannel?
 
-  /// Extrai frames a `fps` para JPEG em tmp; a banda sonora não é extraída.
+  /// Extrai frames a `fps` para JPEG e a banda sonora para WAV 16 kHz.
   private func extractVideoFrames(path: String, fps: Double) throws -> [String: Any] {
     let asset = AVURLAsset(url: URL(fileURLWithPath: path))
     let duration = CMTimeGetSeconds(asset.duration)
@@ -110,12 +110,91 @@ import os
       throw NSError(domain: "offline_ai_mobile", code: 2,
                     userInfo: [NSLocalizedDescriptionKey: "sem frames extraídos"])
     }
+    let soundtrack = (try? extractSoundtrack(path: path)) ?? nil
     return [
       "frames": frames,
-      "soundtrack": NSNull(),
+      "soundtrack": soundtrack ?? NSNull(),
       "fps": fps,
       "duration_ms": Int(duration * 1000),
     ]
+  }
+
+  /// Extrai a banda sonora para WAV PCM16 mono 16 kHz (AVAssetReader faz a
+  /// conversão de formato/rate). Devolve `nil` se o vídeo não tiver áudio.
+  private func extractSoundtrack(path: String) throws -> String? {
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    guard let track = asset.tracks(withMediaType: .audio).first else {
+      return nil
+    }
+    let reader = try AVAssetReader(asset: asset)
+    let settings: [String: Any] = [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVSampleRateKey: 16000.0,
+      AVNumberOfChannelsKey: 1,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+      AVLinearPCMIsBigEndianKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+    ]
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+    output.alwaysCopiesSampleData = false
+    guard reader.canAdd(output) else { return nil }
+    reader.add(output)
+    guard reader.startReading() else { return nil }
+
+    var pcm = Data()
+    while let sample = output.copyNextSampleBuffer() {
+      defer { CMSampleBufferInvalidate(sample) }
+      guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
+      var length = 0
+      var pointer: UnsafeMutablePointer<Int8>?
+      let status = CMBlockBufferGetDataPointer(
+        block,
+        atOffset: 0,
+        lengthAtOffsetOut: nil,
+        totalLengthOut: &length,
+        dataPointerOut: &pointer
+      )
+      guard status == kCMBlockBufferNoErr, length > 0, let raw = pointer else {
+        continue
+      }
+      pcm.append(
+        UnsafeBufferPointer(
+          start: UnsafeRawPointer(raw).assumingMemoryBound(to: UInt8.self),
+          count: length
+        )
+      )
+    }
+    if reader.status == .failed || pcm.isEmpty { return nil }
+
+    var wav = Data()
+    func u32(_ value: UInt32) {
+      var v = value.littleEndian
+      withUnsafeBytes(of: &v) { wav.append(contentsOf: $0) }
+    }
+    func u16(_ value: UInt16) {
+      var v = value.littleEndian
+      withUnsafeBytes(of: &v) { wav.append(contentsOf: $0) }
+    }
+    wav.append("RIFF".data(using: .ascii)!)
+    u32(UInt32(36 + pcm.count))
+    wav.append("WAVE".data(using: .ascii)!)
+    wav.append("fmt ".data(using: .ascii)!)
+    u32(16)
+    u16(1) // PCM
+    u16(1) // mono
+    u32(16000)
+    u32(16000 * 2)
+    u16(2)
+    u16(16)
+    wav.append("data".data(using: .ascii)!)
+    u32(UInt32(pcm.count))
+    wav.append(pcm)
+
+    let file = FileManager.default.temporaryDirectory
+      .appendingPathComponent("video_soundtrack.wav")
+    try wav.write(to: file)
+    return file.path
   }
 
   private func hardwareMetrics() -> [String: Any] {
