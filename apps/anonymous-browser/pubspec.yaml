@@ -20,6 +20,8 @@ dependencies:
   http: ^1.2.2
   path_provider: ^2.1.5
   shared_preferences: ^2.3.3
+  # Cofre criptografado da chave OpenRouter (Keychain iOS / Keystore Android).
+  flutter_secure_storage: ^9.2.4
 
 dev_dependencies:
   flutter_test:

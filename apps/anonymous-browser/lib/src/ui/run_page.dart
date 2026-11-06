@@ -112,11 +112,21 @@ class _RunPageState extends State<RunPage> implements AutopilotHost {
   // ------------------------------------------------------------ corrida
   Future<void> _start() async {
     if (_running) return;
+    final spec = widget.run.spec;
+    // Modos online precisam da chave OpenRouter (validada e guardada
+    // criptografada nas definições).
+    final needsKey = spec.decisionMode == DecisionMode.jevOnline ||
+        spec.textMode == TextMode.mimoOnline;
+    if (needsKey && !widget.settings.hasKey) {
+      onLog('sem chave OpenRouter — adiciona nas definições '
+          '(validada e guardada criptografada)');
+      setState(() => _status = 'sem chave OpenRouter — ver definições');
+      return;
+    }
     setState(() {
       _running = true;
       _status = 'a correr…';
     });
-    final spec = widget.run.spec;
     final scrubber = SecretScrubber();
     for (final e in spec.variables.entries) {
       if (spec.secretVariables.contains(e.key)) {

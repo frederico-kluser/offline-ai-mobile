@@ -1,14 +1,19 @@
-/// Definições da app: chave OpenRouter (só o caminho/valor local — nunca em
-/// log nem tape), modos de backend e limiares recalibráveis.
+/// Definições da app: modos de backend e bandas recalibráveis.
+///
+/// A chave OpenRouter **não** vive aqui: persiste-se criptografada no
+/// [KeyVault] (Keychain/Keystore) e só o valor em memória (mascarado na UI)
+/// passa por esta classe. `shared_preferences` guarda apenas preferências não
+/// sensíveis.
 library;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'domain/mission.dart';
+import 'key_vault.dart';
 
 class AppSettings {
-  /// Chave da API OpenRouter (Jev + MiMo online). Guardada localmente;
-  /// apresentação sempre mascarada.
+  /// Chave OpenRouter (Jev + MiMo online) — cache EM MEMÓRIA. A persistência é
+  /// criptografada (ver [KeyVault]); nunca vai para `shared_preferences`.
   String openrouterKey;
 
   DecisionMode decisionMode;
@@ -32,10 +37,9 @@ class AppSettings {
     this.defaultMaxMinutes = 15,
   });
 
-  static Future<AppSettings> load() async {
+  static Future<AppSettings> load({KeyVault? vault}) async {
     final p = await SharedPreferences.getInstance();
-    return AppSettings(
-      openrouterKey: p.getString('openrouter_key') ?? '',
+    final s = AppSettings(
       decisionMode: DecisionMode.values.firstWhere(
           (m) => m.name == (p.getString('decision_mode') ?? 'jevOnline'),
           orElse: () => DecisionMode.jevOnline),
@@ -47,11 +51,18 @@ class AppSettings {
       doneBand: (p.getDouble('done_band') ?? 0.85),
       defaultMaxMinutes: (p.getInt('default_max_minutes') ?? 15),
     );
+    try {
+      s.openrouterKey =
+          await (vault ?? KeyVault(store: SecureKeyStore())).readKey() ?? '';
+    } catch (_) {
+      s.openrouterKey = ''; // sem cofre disponível (testes) — sem chave
+    }
+    return s;
   }
 
+  /// Guarda as preferências NÃO sensíveis. A chave NUNCA entra aqui.
   Future<void> save() async {
     final p = await SharedPreferences.getInstance();
-    await p.setString('openrouter_key', openrouterKey);
     await p.setString('decision_mode', decisionMode.name);
     await p.setString('text_mode', textMode.name);
     await p.setDouble('auto_band', autoBand);
@@ -60,10 +71,8 @@ class AppSettings {
     await p.setInt('default_max_minutes', defaultMaxMinutes);
   }
 
-  /// Apresentação da chave: `sk-…1234` (nunca em claro).
-  String get maskedKey {
-    final k = openrouterKey;
-    if (k.length <= 8) return k.isEmpty ? '(não definida)' : '••••';
-    return '${k.substring(0, 3)}••••${k.substring(k.length - 4)}';
-  }
+  /// Apresentação da chave: `sk-••••1234` (nunca em claro).
+  String get maskedKey => KeyVault.mask(openrouterKey);
+
+  bool get hasKey => openrouterKey.trim().isNotEmpty;
 }
