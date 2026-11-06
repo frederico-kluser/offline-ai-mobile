@@ -78,7 +78,7 @@ Hugging Face oficial:
 | d1-2B Q4_K_M + mmproj Q8_0 | 1,30 GB | d1 GGUF (3 primitivas) |
 | d1-Omni-2B Q8_0 + mmproj Q8_0 | 2,17 GB | d1 áudio GGUF |
 | d1-2B-ONNX q4 + visão q8 | 1,96 GB | d1 completo (validado no iOS) |
-| d1-Omni-2B-ONNX q4f16 | 2,45 GB | d1 completo + áudio |
+| d1-Omni-2B-ONNX q4 + visão/áudio | 2,39 GB | d1 completo + áudio |
 
 **Código:** MIT. **Pesos:** [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE)
 — Apache-2.0-like, com patentes, mas o §5 limita o uso comercial a

@@ -9,6 +9,7 @@ library;
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:integration_test/integration_test.dart';
@@ -42,6 +43,41 @@ Future<File> _download(String remote, int bytes) async {
   if (length != bytes) {
     throw StateError('$name tem $length bytes; esperado $bytes');
   }
+  return file;
+}
+
+Future<File> _downloadOmni(String remote, int bytes) async {
+  final name = remote.split('/').last;
+  final docs = await getApplicationDocumentsDirectory();
+  final dir = Directory('${docs.path}/models-real-d1');
+  await dir.create(recursive: true);
+  final file = File('${dir.path}/$name');
+  if (await file.exists() && await file.length() == bytes) return file;
+  const base = 'https://huggingface.co/LiquidAI/d1-Omni-2B-ONNX/resolve/main';
+  // ignore: avoid_print
+  print('D1 OMNI: download $base/$remote');
+  final client = http.Client();
+  final res = await client.send(http.Request('GET', Uri.parse('$base/$remote')));
+  if (res.statusCode != 200) {
+    client.close();
+    throw StateError('download HTTP ${res.statusCode} para $remote');
+  }
+  await res.stream.pipe(file.openWrite());
+  client.close();
+  final length = await file.length();
+  if (length != bytes) {
+    throw StateError('$name tem $length bytes; esperado $bytes');
+  }
+  return file;
+}
+
+Future<File> _spokenWav() async {
+  final docs = await getApplicationDocumentsDirectory();
+  final dir = Directory('${docs.path}/models-real-d1');
+  await dir.create(recursive: true);
+  final file = File('${dir.path}/hello_pt.wav');
+  final data = await rootBundle.load('assets/audio/hello_pt.wav');
+  await file.writeAsBytes(data.buffer.asUint8List());
   return file;
 }
 
@@ -155,6 +191,59 @@ void main() {
         final answer = response.answers['red'];
         // ignore: avoid_print
         print('D1 IMAGE: $answer input_tokens=${response.inputTokens} '
+            'latency=${response.latencyMs}');
+        expect(answer, isA<D1NoulAnswer>());
+        expect(response.inputTokens, greaterThan(0));
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+    skip: !const bool.fromEnvironment('REAL_D1'),
+  );
+
+  testWidgets(
+    'd1-Omni ONNX usa audio_features numa pergunta falada',
+    (tester) async {
+      await tester.runAsync(() async {
+        final decoder =
+            await _downloadOmni('onnx/decoder_q4.onnx', 360831);
+        await _downloadOmni('onnx/decoder_q4.onnx_data', 1741806592);
+        final audio = await _downloadOmni(
+            'onnx/audio_encoder_fp16.onnx', 163115);
+        await _downloadOmni(
+            'onnx/audio_encoder_fp16.onnx_data', 255173120);
+        final tokenizer =
+            await _downloadOmni('tokenizer.json', 17908634);
+        final processor =
+            await _downloadOmni('processor_config.json', 1928);
+        final wav = await _spokenWav();
+
+        final engine = D1OnnxEngine();
+        await engine.load(
+          paths: D1ModelPaths(
+            decoderPath: decoder.path,
+            decoderDataPath: '${decoder.parent.path}/decoder_q4.onnx_data',
+            audioEncoderPath: audio.path,
+            tokenizerPath: tokenizer.path,
+            processorConfigPath: processor.path,
+          ),
+          config: const D1Config(threads: 2, maxStateTokens: 2048),
+        );
+        final response = await engine.decide(D1Request(
+          state: '',
+          media: [D1Media(kind: D1MediaKind.audio, path: wav.path)],
+          questions: const [
+            D1NoulQuestion(
+              id: 'spoken',
+              instructions: 'O áudio diz olá, mundo?',
+              trueCriteria: 'sim, diz olá mundo',
+              falseCriteria: 'não diz olá mundo',
+            ),
+          ],
+        ));
+        await engine.unload();
+        final answer = response.answers['spoken'];
+        // ignore: avoid_print
+        print('D1 AUDIO: $answer input_tokens=${response.inputTokens} '
             'latency=${response.latencyMs}');
         expect(answer, isA<D1NoulAnswer>());
         expect(response.inputTokens, greaterThan(0));

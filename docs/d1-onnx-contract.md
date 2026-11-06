@@ -129,8 +129,9 @@ span   = melhor (start,end) com end-start < 512 (texto) / 32 (number/date)
   `RotaryEmbedding`, `MultiHeadAttention`.
 - Os sidecars `.onnx_data*` têm de ficar ao lado do `.onnx` com o nome exato.
 - CPU móvel: `decoder_q4 + vision_encoder_q8` = 1,96 GB (d1-2B, validado no
-  iOS Simulator) / 2,45 GB (d1-Omni com `audio_encoder`). O `decoder_q4f16`
-  oficial crasha no kernel MLAS int8 do simulador iOS; o q4 evita-o.
+  iOS Simulator) / 2,39 GB (d1-Omni com `audio_encoder`). O `decoder_q4f16`
+  oficial crasha no kernel MLAS int8 do simulador iOS; o q4 evita-o nos
+  bundles `d1-2b-onnx-q4` e `d1-omni-2b-onnx-q4`.
 
 ## 8. Limitações desta implementação
 
