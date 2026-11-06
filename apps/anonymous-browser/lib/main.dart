@@ -8,8 +8,8 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'settings.dart';
-import 'ui/home_page.dart';
+import 'src/settings.dart';
+import 'src/ui/home_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

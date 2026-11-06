@@ -87,9 +87,6 @@ class Autopilot {
   final DecisionBackend decision;
   final TextBackend text;
   final AutopilotHost host;
-  final Tape tape;
-  final SecretScrubber scrubber;
-  final QuestionLedger ledger;
   final DecisionBands bands;
   final GateThresholds gateThresholds;
 

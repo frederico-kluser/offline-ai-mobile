@@ -98,8 +98,8 @@ Map<String, dynamic> buildState({
     'variables': {
       for (final k in spec.variables.keys)
         k: spec.secretVariables.contains(k)
-            ? 'secret from the user — type only as {{${k}}} into this site\'s own fields'
-            : 'user variable — type only as {{${k}}}',
+            ? 'secret from the user — type only as {{$k}} into this site\'s own fields'
+            : 'user variable — type only as {{$k}}',
     },
     'outputs_wanted': [
       for (final x in spec.extract)

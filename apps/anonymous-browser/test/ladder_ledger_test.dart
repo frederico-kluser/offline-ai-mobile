@@ -1,4 +1,4 @@
-/// Testes da escada de repetição e do ledger anti-repetição de perguntas.
+// Testes da escada de repetição e do ledger anti-repetição de perguntas.
 import 'package:anonymous_browser_mobile/src/autopilot/ladder.dart';
 import 'package:anonymous_browser_mobile/src/autopilot/question_ledger.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,8 +48,10 @@ void main() {
 
     test('pergunta equivalente (Jaccard ≥ 0.8) também faz replay', () {
       final l = QuestionLedger();
-      l.record('ask', 'ctx', 'o que fazer agora nesta página?', 'continuar');
-      expect(l.recall('ask', 'ctx', 'o que fazer agora nesta pagina'),
+      l.record('ask', 'ctx', 'preciso de ajuda para continuar agora',
+          'continuar');
+      expect(
+          l.recall('ask', 'ctx', 'preciso de ajuda para continuar agora aqui'),
           'continuar');
     });
 

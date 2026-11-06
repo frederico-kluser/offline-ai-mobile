@@ -7,8 +7,8 @@
 /// do agente exclui `eval`/`stop` (escape hatch é só do humano).
 library;
 
-import '../agent/tools.dart';
-import '../domain/tool_spec.dart';
+import 'package:ab_core/ab_core.dart';
+
 import 'browser_action.dart';
 import 'browser_controller.dart';
 

@@ -54,10 +54,10 @@ class Tape {
       'op': op,
       'target_id': targetId,
       'reason': reason,
-      if (ok != null) 'ok': ok,
+      'ok': ?ok,
       'effect': effect,
-      if (costUsd != null) 'cost_usd': costUsd,
-      if (llmMs != null) 'llm_ms': llmMs,
+      'cost_usd': ?costUsd,
+      'llm_ms': ?llmMs,
     });
   }
 
@@ -74,9 +74,9 @@ class Tape {
       'model': model,
       'call': kind,
       'request': request,
-      if (response != null) 'response': response,
-      if (ms != null) 'ms': ms,
-      if (costUsd != null) 'cost_usd': costUsd,
+      'response': ?response,
+      'ms': ?ms,
+      'cost_usd': ?costUsd,
     });
   }
 

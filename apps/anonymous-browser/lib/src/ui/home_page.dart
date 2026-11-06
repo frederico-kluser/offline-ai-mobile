@@ -245,7 +245,7 @@ class _NewMissionPageState extends State<NewMissionPage> {
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               labelText: 'saídas (nome: descrição | regex)',
-              hintText: 'price: preço visível | R\\$\\s?[0-9.,]+',
+              hintText: r'price: preço visível | R\$\s?[0-9.,]+',
             ),
           ),
           const SizedBox(height: 12),

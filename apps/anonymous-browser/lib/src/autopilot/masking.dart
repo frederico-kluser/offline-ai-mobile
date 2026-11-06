@@ -94,5 +94,5 @@ List<String> pendingParams(String text, Map<String, String> variables) {
 /// Mascara um valor para apresentação em UI: só os últimos 4 chars.
 String maskForDisplay(String value) {
   if (value.length <= 4) return kPasswordMask;
-  return '${kPasswordMask}${value.substring(value.length - 4)}';
+  return '$kPasswordMask${value.substring(value.length - 4)}';
 }

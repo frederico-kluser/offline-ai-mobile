@@ -121,17 +121,29 @@ dispositivos Apple reais (`gpuLayers=-1`); o **simulador iOS tem Metal
 incompleto** (produz mojibake) e o motor deteta-o, usando CPU aí. O gate final
 é um iPhone físico — ver [`docs/runbook-iphone-fisico.md`](docs/runbook-iphone-fisico.md).
 
-## Arquitetura
+## Arquitetura (monorepo)
 
 ```
-lib/src/domain/      tipos (decisões tipadas, config determinística, registos)
-lib/src/guardrails/  LoopGuard — cortes anti-loop determinísticos
-lib/src/agent/       chat template + parser XML do MiniCPM5, loop de agente, ferramentas
-lib/src/engines/     interfaces + motores (llama.cpp FFI; ONNX Runtime do Laya)
-lib/src/services/    catálogo de modelos + download verificado (sha256, .part → instalação atómica)
-lib/src/ui/          telas Material 3 (padrão do SO)
+packages/ab_core/    domínio (decisões tipadas, config, registos) · motores
+                     (llama.cpp FFI; ONNX Runtime do Laya) · tokenizador ·
+                     agente (chat template MiniCPM5, tool loop, ferramentas) ·
+                     guardrails (LoopGuard) · serviços (catálogo + download
+                     verificado sha256) · AppServices (wiring dos motores)
+packages/ab_browser/ vocabulário fechado de ações · snapshot compacto (refs
+                     estáveis + docId/refEpoch) · ponte JS window.__oai ·
+                     controlador WebView · piloto Laya · tools browser_*
+apps/anonymous-browser/  app "anonymous-browser mobile" (2.ª versão do projeto
+                     desktop anonymous-browser) — ver o README dela
+lib/src/ui/          telas Material 3 do app de exemplo (padrão do SO)
 pesquisas/           dossiê de pesquisa profunda que fundamenta as decisões
 ```
+
+O app de exemplo (raiz) e a app `anonymous-browser` partilham os packages por
+`path:` deps — o conhecimento e o código dos motores, guardrails e do browser
+vivem num só sítio. A app `anonymous-browser` espelha a arquitetura de controlo
+do projeto desktop `anonymous-browser` (cascata decisor tipado → modelo de
+texto → humano, gate fora de banda, tape mascarado): mapa completo em
+[`apps/anonymous-browser/README.md`](apps/anonymous-browser/README.md).
 
 ## Documentação de origem
 

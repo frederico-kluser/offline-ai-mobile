@@ -1,5 +1,5 @@
-/// Testes do payload de decisão: pools (senhas mascaradas), state (sem
-/// valores de segredos, texto embrulhado) e perguntas tipadas.
+// Testes do payload de decisão: pools (senhas mascaradas), state (sem
+// valores de segredos, texto embrulhado) e perguntas tipadas.
 import 'package:ab_browser/ab_browser.dart';
 import 'package:anonymous_browser_mobile/src/autopilot/masking.dart';
 import 'package:anonymous_browser_mobile/src/domain/decision_payload.dart';

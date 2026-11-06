@@ -12,8 +12,8 @@
 /// fechadas); a validação final acontece no executor.
 library;
 
-import '../domain/laya_types.dart';
-import '../engines/laya_engine.dart';
+import 'package:ab_core/ab_core.dart';
+
 import 'browser_action.dart';
 import 'browser_page_state.dart';
 

@@ -1,4 +1,4 @@
-/// Testes do firewall de injeção (PT+EN) e do gate de irreversibilidade.
+// Testes do firewall de injeção (PT+EN) e do gate de irreversibilidade.
 import 'package:anonymous_browser_mobile/src/autopilot/gate.dart';
 import 'package:anonymous_browser_mobile/src/autopilot/risk_lexicon.dart';
 import 'package:anonymous_browser_mobile/src/autopilot/untrusted.dart';

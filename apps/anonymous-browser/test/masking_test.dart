@@ -1,4 +1,4 @@
-/// Testes de higiene de dados: mascaramento de segredos e placeholders.
+// Testes de higiene de dados: mascaramento de segredos e placeholders.
 import 'package:anonymous_browser_mobile/src/autopilot/masking.dart';
 import 'package:flutter_test/flutter_test.dart';
 

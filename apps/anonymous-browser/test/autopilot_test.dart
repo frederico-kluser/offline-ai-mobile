@@ -1,5 +1,5 @@
-/// Teste do loop (autopilot) em cascata, com fakes determinísticos: gate
-/// humano, fallback de texto, mascaramento no tape e firewall de injeção.
+// Teste do loop (autopilot) em cascata, com fakes determinísticos: gate
+// humano, fallback de texto, mascaramento no tape e firewall de injeção.
 import 'dart:async';
 
 import 'package:ab_browser/ab_browser.dart';

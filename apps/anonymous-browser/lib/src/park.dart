@@ -11,13 +11,10 @@ import 'package:path_provider/path_provider.dart';
 import 'domain/mission.dart';
 
 class Park {
-  Directory? _root;
-
   Future<Directory> _runsDir() async {
     final base = await getApplicationDocumentsDirectory();
     final dir = Directory('${base.path}/anonymous_browser/runs');
     if (!await dir.exists()) await dir.create(recursive: true);
-    _root = dir;
     return dir;
   }
 
