@@ -91,6 +91,9 @@ com `<X.X seconds>`. Contexto por omissão 16 384; `image_max_tokens` 1024.
 - vídeo de curta duração a 2 fps;
 - base visual para o modo `Omni` quando precisas de som.
 
+A UI atual desenha caixas do **d1** sobre a imagem; o VL devolve as coordenadas no texto, mas ainda não
+há overlay automático para `point_2d`/`bbox_2d` do VL.
+
 ### Como usar
 - **Prompts**: escolhe o perfil `Visão / vídeo`; anexa uma imagem (PNG/JPEG) ou um vídeo (MP4).
 - Templates CT-03 (OCR/pointing) e CT-04 (vídeo 2 fps) mostram o formato esperado.
