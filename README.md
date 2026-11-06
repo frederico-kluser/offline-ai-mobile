@@ -158,6 +158,8 @@ Detalhes e latências em
   da arquitetura, ecrãs, motor, catálogo, build, testes e limitações.
 - [`docs/modelos.md`](docs/modelos.md) — o que é cada modelo, para que serve,
   como usar e links de download (GGUF, mmproj e ONNX).
+- [`docs/hashes.md`](docs/hashes.md) — bytes exatos e SHA-256 completo de
+  todos os 33 ficheiros dos 11 bundles.
 - [`docs/lfm3-migration.md`](docs/lfm3-migration.md) — decisões da migração.
 - [`docs/d1-onnx-contract.md`](docs/d1-onnx-contract.md) — prompt, tensores e
   pós-processamento do d1.

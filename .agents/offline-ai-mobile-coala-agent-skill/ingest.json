@@ -30,6 +30,14 @@
       "tags": "estado,arquitetura,ecras,testes"
     },
     {
+      "name": "hashes",
+      "include": ["docs/hashes.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "modelos,hashes,sha256,tamanhos,downloads"
+    },
+    {
       "name": "migracao",
       "include": ["docs/lfm3-migration.md"],
       "mode": "markdown",

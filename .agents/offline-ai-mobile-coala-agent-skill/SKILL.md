@@ -36,6 +36,7 @@ Hugging Face oficial.
   build, testes, resultados reais e limitações.
 - [`docs/modelos.md`](../../docs/modelos.md) — o que é cada modelo, para que serve, como usar, bundle,
   tamanho, SHA-256 e **links de download** (GGUF, mmproj e ONNX).
+- [`docs/hashes.md`](../../docs/hashes.md) — bytes exatos e SHA-256 completo de todos os ficheiros.
 - [`docs/d1-onnx-contract.md`](../../docs/d1-onnx-contract.md) — prompt, tensores e pós-processamento d1.
 - [`docs/real-inference-validation.md`](../../docs/real-inference-validation.md) — gates reais.
 - [`tools/llama_ffi.md`](../../tools/llama_ffi.md) — build/FFI.

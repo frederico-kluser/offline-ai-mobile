@@ -1,8 +1,10 @@
 # offline-ai-mobile — estado definitivo do projeto
 
-**Data de referência:** 2026-11-06 · **branch principal:** `main` · **merge da migração:**
-`9ce4da799a24acf95c78f2f93b43e76477f6b845` (PR #1) · **release de modelos:**
-`models-lfm3-suite-v1`.
+**Data de referência:** 2026-11-06 · **branch principal:** `main` · **HEAD na verificação:**
+`99499d4` (o topo atual vê-se com `git log -1`) · **merge da migração:**
+`9ce4da799a24acf95c78f2f93b43e76477f6b845`
+([PR #1](https://github.com/frederico-kluser/offline-ai-mobile/pull/1)) ·
+**release de modelos:** `models-lfm3-suite-v1`.
 
 Este é o retrato da versão **definitiva** da migração MiniCPM5-2B + Laya → **Liquid AI LFM3 + d1**.
 Para o guia de cada modelo (para que serve, como usar, links de download) vê
@@ -109,6 +111,8 @@ Resumo; detalhes, links e SHA em [`modelos.md`](modelos.md).
 (release `models-lfm3-suite-v1`) para todos os GGUF/mmproj; Hugging Face oficial para os grafos ONNX
 (`LiquidAI/d1-2B-ONNX`, `LiquidAI/d1-Omni-2B-ONNX`). O `manifest.json` e o `SHA256SUMS.txt` do release
 são a fonte de verdade de tamanhos e hashes.
+O release tem **19 assets**: 15 GGUF/mmproj + 4 metadados (`manifest.json`, `SHA256SUMS.txt`,
+`README.md`, `LICENSE`). Os bytes e SHA-256 completos estão em [`hashes.md`](hashes.md).
 
 ### Como o downloader funciona
 - catálogo com 11 bundles e ficheiros individuais;
