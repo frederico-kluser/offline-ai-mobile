@@ -1,12 +1,11 @@
-/// Pré-processamento tensorial do d1 (imagem → `pixel_values`).
+/// Pré-processamento tensorial do d1 (imagem/vídeo → `pixel_values`).
 ///
 /// O `vision_encoder` do d1-2B/d1-Omni-2B espera
 /// `pixel_values` float32 com shape
 /// `[grid_h_blocks, grid_w_blocks, 2, 2, 1536]`:
 ///  - blocos de 32×32 px (patch 16 × merge 2);
 ///  - 2×2 patches por bloco;
-///  - 1536 = 3 canais × 16 × 16 × 2 frames (temporal patch 2; uma imagem
-///    estática é duplicada).
+///  - 1536 = 3 canais × 16 × 16 × 2 frames (temporal patch 2).
 ///
 /// Normalização: `(pixel / 255 − 0.5) / 0.5`.
 library;
@@ -22,33 +21,45 @@ class D1PixelTensor {
   const D1PixelTensor(this.data, this.shape);
 }
 
-D1PixelTensor buildD1PixelValues(PreparedImage image) {
-  if (image.width % 32 != 0 || image.height % 32 != 0) {
-    throw ArgumentError(
-        'imagem ${image.width}×${image.height} não é múltipla de 32');
+/// Uma imagem estática é duplicada nos dois frames temporais.
+D1PixelTensor buildD1PixelValues(PreparedImage image) =>
+    _pixelTensor(image, image);
+
+/// Um par de frames de vídeo (2 fps → 2 frames por patch temporal).
+D1PixelTensor buildD1VideoValues(PreparedImage frame0, PreparedImage frame1) =>
+    _pixelTensor(frame0, frame1);
+
+D1PixelTensor _pixelTensor(PreparedImage a, PreparedImage b) {
+  if (a.width != b.width || a.height != b.height) {
+    throw ArgumentError('frames com dimensões diferentes: '
+        '${a.width}×${a.height} vs ${b.width}×${b.height}');
   }
-  if (image.rgb.length != image.width * image.height * 3) {
+  if (a.width % 32 != 0 || a.height % 32 != 0) {
     throw ArgumentError(
-        'RGB com ${image.rgb.length} bytes; esperado ${image.width * image.height * 3}');
+        'imagem ${a.width}×${a.height} não é múltipla de 32');
   }
-  final gh = image.height ~/ 32;
-  final gw = image.width ~/ 32;
+  if (a.rgb.length != a.width * a.height * 3 ||
+      b.rgb.length != b.width * b.height * 3) {
+    throw ArgumentError('RGB com tamanho inválido');
+  }
+  final gh = a.height ~/ 32;
+  final gw = a.width ~/ 32;
   final data = Float32List(gh * gw * 2 * 2 * 1536);
   var o = 0;
   for (var by = 0; by < gh; by++) {
     for (var bx = 0; bx < gw; bx++) {
       for (var py = 0; py < 2; py++) {
         for (var px = 0; px < 2; px++) {
-          // frame 0 e frame 1 (duplicado numa imagem estática)
           for (var frame = 0; frame < 2; frame++) {
+            final src = frame == 0 ? a : b;
             for (var y = 0; y < 16; y++) {
               for (var x = 0; x < 16; x++) {
                 final sy = by * 32 + py * 16 + y;
                 final sx = bx * 32 + px * 16 + x;
-                final i = (sy * image.width + sx) * 3;
-                data[o++] = (image.rgb[i] / 255.0 - 0.5) / 0.5;
-                data[o++] = (image.rgb[i + 1] / 255.0 - 0.5) / 0.5;
-                data[o++] = (image.rgb[i + 2] / 255.0 - 0.5) / 0.5;
+                final i = (sy * src.width + sx) * 3;
+                data[o++] = (src.rgb[i] / 255.0 - 0.5) / 0.5;
+                data[o++] = (src.rgb[i + 1] / 255.0 - 0.5) / 0.5;
+                data[o++] = (src.rgb[i + 2] / 255.0 - 0.5) / 0.5;
               }
             }
           }

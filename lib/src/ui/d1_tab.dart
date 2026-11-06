@@ -329,10 +329,10 @@ class _D1TabState extends State<D1Tab> {
           error: true);
       return;
     }
-    if (_attachments.any((a) => a.kind == MediaKind.video)) {
+    if (_attachments.any((a) => a.kind == MediaKind.video) &&
+        !bundle.supportsVideo) {
       showSnack(context,
-          'Vídeo no d1 ONNX exige o processor temporal oficial; usa imagem, '
-          'áudio (d1-Omni) ou o LFM3-VL/Omni via libmtmd.',
+          'Vídeo no d1 exige um bundle com vision_encoder (d1-2B/d1-Omni).',
           error: true);
       return;
     }

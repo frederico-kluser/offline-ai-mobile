@@ -62,7 +62,7 @@ class D1OnnxEngine implements D1Engine {
   D1Capabilities get capabilities => D1Capabilities(
         types: D1Capabilities.onnxVisionText.types,
         vision: _paths?.visionEncoderPath != null,
-        video: false,
+        video: _paths?.visionEncoderPath != null,
         audio: _paths?.audioEncoderPath != null,
       );
 
@@ -139,11 +139,22 @@ class D1OnnxEngine implements D1Engine {
             'sample_rate': audio.sampleRate,
           });
         case D1MediaKind.video:
-          throw const D1Unavailable(
-            'vídeo no d1 ONNX exige o processor temporal oficial '
-            '(video_features), ainda não ligado; usa imagem/áudio ou o '
-            'LFM3-VL/Omni via libmtmd.',
-          );
+          final video = await const MediaPreprocessor().prepareVideo(m.path);
+          if (video.frames.isEmpty) {
+            throw const D1Unavailable('vídeo sem frames extraídos');
+          }
+          prepared.add({
+            'kind': 'video',
+            'frames': [
+              for (final f in video.frames)
+                {
+                  'width': f.width,
+                  'height': f.height,
+                  'rgb': f.rgb,
+                }
+            ],
+            'soundtrack': video.soundtrack?.toMap(),
+          });
       }
     }
     final reply = ReceivePort();
@@ -407,6 +418,8 @@ Object _workerDecide({
   var imageTokens = 0;
   var audioFeatures = <double>[];
   var audioTokens = 0;
+  var videoFeatures = <double>[];
+  var videoTokens = 0;
   final mediaTokenCounts = <int>[];
   for (final m in media) {
     if (m['kind'] == 'image') {
@@ -444,6 +457,36 @@ Object _workerDecide({
       }
       mediaTokenCounts.add(part.length ~/ 2048);
       audioFeatures.addAll(part);
+    } else if (m['kind'] == 'video') {
+      if (vision == null) {
+        return _Err('bundle d1 sem vision_encoder; não é possível usar vídeo');
+      }
+      final frames = (m['frames']! as List).cast<Map>();
+      if (frames.isEmpty) return _Err('vídeo d1 sem frames');
+      var count = 0;
+      for (var i = 0; i < frames.length; i += 2) {
+        PreparedImage frame(int j) {
+          final f = frames[j];
+          return PreparedImage(
+            width: f['width']! as int,
+            height: f['height']! as int,
+            rgb: f['rgb']! as Uint8List,
+          );
+        }
+
+        final a = frame(i);
+        final b = frame(i + 1 < frames.length ? i + 1 : i);
+        final out = _runVision(vision, buildD1VideoValues(a, b));
+        if (out is _Err) return out;
+        final part = (out as _Ok).payload as List<double>;
+        if (part.length % 2048 != 0) {
+          return _Err('vision_encoder (vídeo) devolveu ${part.length} '
+              'valores; não é múltiplo de 2048');
+        }
+        count += part.length ~/ 2048;
+        videoFeatures.addAll(part);
+      }
+      mediaTokenCounts.add(count);
     } else {
       return _Err('tipo de mídia d1 desconhecido: ${m['kind']}');
     }
@@ -458,6 +501,11 @@ Object _workerDecide({
         'não é múltiplo de 2048');
   }
   audioTokens = audioFeatures.length ~/ 2048;
+  if (videoFeatures.length % 2048 != 0) {
+    return _Err('vision_encoder (vídeo) devolveu ${videoFeatures.length} '
+        'valores; não é múltiplo de 2048');
+  }
+  videoTokens = videoFeatures.length ~/ 2048;
 
   for (var i = 0; i < questions.length; i++) {
     final prompt = D1PromptBuilder(
@@ -482,6 +530,8 @@ Object _workerDecide({
       imageTokens: imageTokens,
       audioFeatures: audioFeatures,
       audioTokens: audioTokens,
+      videoFeatures: videoFeatures,
+      videoTokens: videoTokens,
     );
     if (one is _Err) return one;
     answers[questions[i].id] = (one as _Ok).payload as D1Answer;
@@ -508,6 +558,8 @@ Object _runOne({
   int imageTokens = 0,
   List<double> audioFeatures = const [],
   int audioTokens = 0,
+  List<double> videoFeatures = const [],
+  int videoTokens = 0,
 }) {
   final n = prompt.inputIds.length;
   final inputs = <String, OrtValue>{};
@@ -543,8 +595,12 @@ Object _runOne({
           );
   }
   if (available.contains('video_features')) {
-    // O caminho de vídeo do d1 ainda não está ligado; o grafo exige o input.
-    inputs['video_features'] = _emptyFloatTensor(const [0, 2048]);
+    inputs['video_features'] = videoFeatures.isEmpty
+        ? _emptyFloatTensor(const [0, 2048])
+        : OrtValueTensor.createTensorWithDataList(
+            Float32List.fromList(videoFeatures),
+            [videoTokens, 2048],
+          );
   }
 
   if (!available.contains('input_ids') ||

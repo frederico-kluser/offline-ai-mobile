@@ -26,6 +26,24 @@ void main() {
     expect(t.data[768], 1.0); // segundo frame duplicado
   });
 
+  test('par de frames codifica frame0/frame1', () {
+    final red = PreparedImage(
+      width: 64,
+      height: 64,
+      rgb: Uint8List.fromList(List.generate(64 * 64 * 3, (i) => i % 3 == 0 ? 255 : 0)),
+    );
+    final blue = PreparedImage(
+      width: 64,
+      height: 64,
+      rgb: Uint8List.fromList(List.generate(64 * 64 * 3, (i) => i % 3 == 2 ? 255 : 0)),
+    );
+    final t = buildD1VideoValues(red, blue);
+    expect(t.shape, [2, 2, 2, 2, 1536]);
+    expect(t.data[0], 1.0); // R do frame0
+    expect(t.data[768], -1.0); // R do frame1 (azul)
+    expect(t.data[770], 1.0); // B do frame1
+  });
+
   test('imagem fora de múltiplos de 32 falha', () {
     expect(
       () => buildD1PixelValues(PreparedImage(

@@ -81,6 +81,16 @@ Future<File> _spokenWav() async {
   return file;
 }
 
+Future<File> _redVideo() async {
+  final docs = await getApplicationDocumentsDirectory();
+  final dir = Directory('${docs.path}/models-real-d1');
+  await dir.create(recursive: true);
+  final file = File('${dir.path}/red.mp4');
+  final data = await rootBundle.load('assets/video/red.mp4');
+  await file.writeAsBytes(data.buffer.asUint8List());
+  return file;
+}
+
 Future<File> _redImage() async {
   final docs = await getApplicationDocumentsDirectory();
   final dir = Directory('${docs.path}/models-real-d1');
@@ -244,6 +254,55 @@ void main() {
         final answer = response.answers['spoken'];
         // ignore: avoid_print
         print('D1 AUDIO: $answer input_tokens=${response.inputTokens} '
+            'latency=${response.latencyMs}');
+        expect(answer, isA<D1NoulAnswer>());
+        expect(response.inputTokens, greaterThan(0));
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+    skip: !const bool.fromEnvironment('REAL_D1'),
+  );
+
+  testWidgets(
+    'd1-2B ONNX usa video_features num clipe de 2 fps',
+    (tester) async {
+      await tester.runAsync(() async {
+        final decoder = await _download('onnx/decoder_q4.onnx', 358945);
+        await _download('onnx/decoder_q4.onnx_data', 1741806592);
+        final vision =
+            await _download('onnx/vision_encoder_q8.onnx', 126353);
+        await _download('onnx/vision_encoder_q8.onnx_data', 196153344);
+        final tokenizer = await _download('tokenizer.json', 17908258);
+        final processor = await _download('processor_config.json', 1254);
+        final video = await _redVideo();
+
+        final engine = D1OnnxEngine();
+        await engine.load(
+          paths: D1ModelPaths(
+            decoderPath: decoder.path,
+            decoderDataPath: '${decoder.parent.path}/decoder_q4.onnx_data',
+            visionEncoderPath: vision.path,
+            tokenizerPath: tokenizer.path,
+            processorConfigPath: processor.path,
+          ),
+          config: const D1Config(threads: 2, maxStateTokens: 2048),
+        );
+        final response = await engine.decide(D1Request(
+          state: 'Um clipe curto de cor sólida.',
+          media: [D1Media(kind: D1MediaKind.video, path: video.path)],
+          questions: const [
+            D1NoulQuestion(
+              id: 'video',
+              instructions: 'O clipe é vermelho?',
+              trueCriteria: 'sim, vermelho',
+              falseCriteria: 'não é vermelho',
+            ),
+          ],
+        ));
+        await engine.unload();
+        final answer = response.answers['video'];
+        // ignore: avoid_print
+        print('D1 VIDEO: $answer input_tokens=${response.inputTokens} '
             'latency=${response.latencyMs}');
         expect(answer, isA<D1NoulAnswer>());
         expect(response.inputTokens, greaterThan(0));
