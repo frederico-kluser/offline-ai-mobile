@@ -137,9 +137,12 @@ span   = melhor (start,end) com end-start < 512 (texto) / 32 (number/date)
 
 - O prompt builder e o decoder categórico/pointer estão implementados e
   testados com logits sintéticos.
-- Imagem e áudio estão ligados ao `image_features`/`audio_features`:
-  `d1_vision.dart` gera `pixel_values` `[grid_h,grid_w,2,2,1536]` e
+- Imagem, áudio e vídeo estão ligados:
+  `d1_vision.dart` gera `pixel_values` `[grid_h,grid_w,2,2,1536]` (imagem
+  duplica os 2 frames; vídeo emparelha frames a 2 fps),
   `d1_audio.dart` gera o log-mel oficial `[1,128,frames]` (FFT 400,
-  hop 160, 128 mel Slaney, `(log10+4)/4`). Vídeo continua a exigir o
-  processor temporal e devolve erro explícito.
+  hop 160, 128 mel Slaney, `(log10+4)/4`) e o decoder recebe
+  `image_features`/`video_features`/`audio_features`.
+- A **banda sonora de vídeo** não é extraída no dispositivo; o
+  `video_features` cobre só a imagem em movimento.
 - A via GGUF do llama.cpp só faz `noul`/`choice`/`score`.

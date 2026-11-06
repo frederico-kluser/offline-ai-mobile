@@ -30,6 +30,7 @@ o modelo pode ser pré-carregado com `adb push` para
 | d1-2B ONNX | `decoder_q4.onnx` + `vision_encoder_q8` | `noul` texto, `D1NoulAnswer`, 0 tokens gerados | 38/0 | 769 ms |
 | d1-2B ONNX | idem, com imagem | `noul` visual com `image_features` | 46/0 | 1093 ms |
 | d1-Omni ONNX | `decoder_q4` + `audio_encoder_fp16` | `noul` falado com `audio_features` | 70/0 | 1668 ms |
+| d1-2B ONNX | `decoder_q4` + `vision_q8`, clipe 2 s | `noul` visual com `video_features` (frames 2 fps) | 50/0 | 1557 ms |
 | LFM3-1.7B | idem, **Android x86_64** | `"Olá! Como posso ajudar você hoje?"` | 37/10 | 137 s* |
 
 \* Emulador Android x86_64 sem dotprod/i8mm (CPU emulada): o tempo não é
@@ -51,11 +52,11 @@ caminho validado.
 
 ## O que ainda não foi validado com pesos reais
 
-- **Vídeo no d1** (`video_features`): o processor temporal oficial não está
-  ligado; o motor devolve erro explícito. O LFM3-VL/Omni já recebe frames a
-  2 fps via `libmtmd`.
-- **Banda sonora de vídeo**: o canal nativo extrai frames, mas não o áudio do
-  vídeo; o LFM3-Omni com vídeo+áudio não foi exercitado.
+- **Banda sonora de vídeo**: o canal nativo extrai frames a 2 fps (usados
+  pelo d1 e pelo `libmtmd`), mas não o áudio do vídeo; o LFM3-Omni com
+  vídeo+áudio e o d1-Omni com banda sonora não foram exercitados.
+- **d1-Omni imagem/vídeo**: o gate real do d1-Omni cobriu áudio; imagem e
+  vídeo foram validados no d1-2B (mesmo `vision_encoder`).
 - **Android com pesos reais**: o texto LFM3-1.7B correu no emulador x86_64
   (ver tabela); VL/áudio/d1 reais ainda não correram em Android. O emulador é
   lento e não representa um telefone arm64.

@@ -53,6 +53,16 @@ Future<File> _download(String name, int bytes) async {
   return file;
 }
 
+Future<File> _redVideo() async {
+  final docs = await getApplicationDocumentsDirectory();
+  final dir = Directory('${docs.path}/models-real');
+  await dir.create(recursive: true);
+  final file = File('${dir.path}/red.mp4');
+  final data = await rootBundle.load('assets/video/red.mp4');
+  await file.writeAsBytes(data.buffer.asUint8List());
+  return file;
+}
+
 Future<File> _redImage() async {
   final docs = await getApplicationDocumentsDirectory();
   final dir = Directory('${docs.path}/models-real');
@@ -223,6 +233,57 @@ void main() {
         await engine.unload();
         // ignore: avoid_print
         print('REAL VL: saida="$out" pt=${end?.promptTokens} '
+            'ot=${end?.outputTokens} ms=${end?.latencyMs} '
+            'stop=${end?.stopReason} err=${end?.error}');
+        expect(out.toString().trim(), isNotEmpty);
+        expect(end?.error, isNull);
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+    skip: !const bool.fromEnvironment('REAL_LFM3'),
+  );
+
+  testWidgets(
+    'LFM3-VL-2B descreve um vídeo a 2 fps',
+    (tester) async {
+      await tester.runAsync(() async {
+        final model = await _download('LFM3-VL-2B-Q4_K_M.gguf', 1099627808);
+        final mmproj =
+            await _download('mmproj-LFM3-VL-2B-Q8_0.gguf', 203031872);
+        final video = await _redVideo();
+        final engine = LlamaLfm3FfiEngine();
+        final config = LlmConfig.forProfile(Lfm3Profile.vision).copyWith(
+          gpuLayers: 0,
+          contextSize: 2048,
+          maxTokens: 24,
+          maxThinkingTokens: 0,
+          enableThinking: false,
+          imageMaxTokens: 256,
+          videoFps: 2,
+        );
+        await engine.load(
+          modelPath: model.path,
+          config: config,
+          mmprojPath: mmproj.path,
+          kind: Lfm3ModelKind.vision,
+        );
+        final out = StringBuffer();
+        GenEnd? end;
+        await for (final ev in engine.generate(
+          messages: const [
+            ChatMessage('user',
+                'Que cor predomina neste vídeo? Responde numa palavra.'),
+          ],
+          media: [LlmMediaInput(kind: MediaKind.video, path: video.path)],
+          config: config,
+          maxTokensOverride: 16,
+        )) {
+          if (ev is GenDelta) out.write(ev.text);
+          if (ev is GenEnd) end = ev;
+        }
+        await engine.unload();
+        // ignore: avoid_print
+        print('REAL VIDEO: saida="$out" pt=${end?.promptTokens} '
             'ot=${end?.outputTokens} ms=${end?.latencyMs} '
             'stop=${end?.stopReason} err=${end?.error}');
         expect(out.toString().trim(), isNotEmpty);

@@ -135,11 +135,13 @@ Detalhes e latências em
 
 ## Limitações honestas
 
-- O d1 ONNX executa **texto, imagem (`image_features`) e áudio
-  (`audio_features`, d1-Omni)**; **vídeo** no d1 exige o processor temporal
-  oficial e ainda devolve erro explícito. O d1 de texto cobre slots/spans.
-- A extração de vídeo usa o canal nativo para frames a 2 fps; a banda sonora
-  do vídeo ainda não é extraída no dispositivo (o LFM3-Omni precisa dela).
+- O d1 ONNX executa **texto, imagem (`image_features`), áudio
+  (`audio_features`, d1-Omni) e vídeo (frames a 2 fps → `video_features`)**.
+  O d1 de texto cobre slots/spans; a validação real cobriu texto, imagem,
+  áudio e vídeo.
+- A extração de vídeo usa o canal nativo para frames a 2 fps; a **banda sonora
+  do vídeo** ainda não é extraída no dispositivo (o LFM3-Omni video+áudio e o
+  d1-Omni com banda sonora não foram exercitados).
 - O espelho GitHub publica **todos os GGUF/mmproj** e o manifesto/SHA-256;
   os subgrafos ONNX do d1 são servidos pelo Hugging Face oficial.
 - Não há pesos no git: são sempre descarregados e verificados.
