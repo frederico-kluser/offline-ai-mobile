@@ -396,6 +396,8 @@ O texto a digitar usa placeholders {{email}}, {{password}}, {{code}} — nunca v
     final textValue = '${j['text'] ?? ''}';
     final askUser = j['ask_user'] == true;
     if (askUser || op == null || op == Op.blocked) {
+      tape.decision(
+          who: 'text', conf: 0, op: 'BLOCKED', reason: '${j['reason'] ?? ''}');
       final answer = await host.askHuman('${j['reason'] ?? 'bloqueado'}');
       if (answer == null) return RunOutcome.needsInput;
       run.guidance.add(answer);
