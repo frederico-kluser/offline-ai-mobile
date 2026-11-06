@@ -127,8 +127,10 @@ flutter test integration_test/real_d1_test.dart   --dart-define=REAL_D1=true  -d
 Resultados (2026-11-06): LFM3-1.7B `"Olá! Como posso ajudar você hoje?"`;
 LFM3-VL-2B `"Vermelho"` numa imagem vermelha; LFM3-Audio-2B transcreveu
 `"Olá, mundo! Este é um teste de áudio."`; d1-2B ONNX respondeu a `noul` de
-texto (38 tokens, 769 ms) e com imagem (46 tokens, 1093 ms). Detalhes e
-latências em [`docs/real-inference-validation.md`](docs/real-inference-validation.md).
+texto (38 tokens, 769 ms) e com imagem (46 tokens, 1093 ms). O mesmo
+LFM3-1.7B também gerou texto no **Android x86_64** (emulador lento, 137 s).
+Detalhes e latências em
+[`docs/real-inference-validation.md`](docs/real-inference-validation.md).
 
 ## Limitações honestas
 

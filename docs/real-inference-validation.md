@@ -27,6 +27,12 @@ normal não descarregar vários GB.
 | LFM3-Audio-2B | `LFM3-Audio-2B-Q4_K_M` + `mmproj-Q8_0` | transcrição exata: `"Olá, mundo! Este é um teste de áudio."` | 60/14 | 1087 ms |
 | d1-2B ONNX | `decoder_q4.onnx` + `vision_encoder_q8` | `noul` texto, `D1NoulAnswer`, 0 tokens gerados | 38/0 | 769 ms |
 | d1-2B ONNX | idem, com imagem | `noul` visual com `image_features` | 46/0 | 1093 ms |
+| LFM3-1.7B | idem, **Android x86_64** | `"Olá! Como posso ajudar você hoje?"` | 37/10 | 137 s* |
+
+\* Emulador Android x86_64 sem dotprod/i8mm (CPU emulada): o tempo não é
+representativo de um telefone arm64. O objetivo foi validar o caminho
+`libllama.so`/`libmtmd.so` Android, que passou. O modelo foi pré-carregado
+via `adb push` para evitar o download lento do emulador.
 
 Os três modelos LFM3 usam o mesmo caminho `llama.cpp b12088` + `libmtmd`:
 carregamento, ChatML, template de mídia, amostragem e EOS. O d1 usa o
@@ -47,7 +53,8 @@ caminho validado.
   2 fps via `libmtmd`.
 - **Banda sonora de vídeo**: o canal nativo extrai frames, mas não o áudio do
   vídeo; o LFM3-Omni com vídeo+áudio não foi exercitado.
-- **Android com pesos reais**: os gates reais só correram no iOS Simulator;
-  Android foi validado em build/APK, libs nativas e canal de hardware.
+- **Android com pesos reais**: o texto LFM3-1.7B correu no emulador x86_64
+  (ver tabela); VL/áudio/d1 reais ainda não correram em Android. O emulador é
+  lento e não representa um telefone arm64.
 - **Metal em device físico**: o simulador usa CPU; o gate Metal do llama.cpp
   continua a ser o runbook do iPhone físico.
