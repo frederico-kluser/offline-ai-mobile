@@ -119,9 +119,9 @@ em [`docs/ct-scenarios.md`](docs/ct-scenarios.md).
 
 ## Limitações honestas
 
-- O pipeline ONNX de mídia do d1 (imagem/áudio) exige o processor oficial; a
-  app já aceita o anexo e mostra um erro explícito enquanto esse caminho não
-  está ligado. O d1 de **texto** funciona com o contrato de slots/spans.
+- O d1 ONNX executa **texto, imagem (`image_features`) e áudio
+  (`audio_features`, d1-Omni)**; **vídeo** no d1 exige o processor temporal
+  oficial e ainda devolve erro explícito. O d1 de texto cobre slots/spans.
 - A extração de vídeo usa o canal nativo para frames a 2 fps; a banda sonora
   do vídeo ainda não é extraída no dispositivo (o LFM3-Omni precisa dela).
 - O espelho GitHub publica **todos os GGUF/mmproj** e o manifesto/SHA-256;

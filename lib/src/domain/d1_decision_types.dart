@@ -976,6 +976,26 @@ class D1Capabilities {
     audio: true,
   );
 
+  /// O que o `D1OnnxEngine` desta build executa: todas as primitivas de
+  /// texto + imagem; áudio/vídeo ONNX ainda exigem o processor oficial.
+  static const D1Capabilities onnxVisionText = D1Capabilities(
+    types: {
+      D1QuestionType.noul,
+      D1QuestionType.choice,
+      D1QuestionType.multiChoice,
+      D1QuestionType.score,
+      D1QuestionType.textSpan,
+      D1QuestionType.numberSpan,
+      D1QuestionType.dateSpan,
+      D1QuestionType.numberRange,
+      D1QuestionType.box,
+      D1QuestionType.boxes,
+    },
+    vision: true,
+    video: false,
+    audio: false,
+  );
+
   /// Via GGUF do llama.cpp: apenas noul/choice/score (limitação documentada).
   static const D1Capabilities ggufBasic = D1Capabilities(
     types: {

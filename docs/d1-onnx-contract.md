@@ -130,7 +130,9 @@ span   = melhor (start,end) com end-start < 512 (texto) / 32 (number/date)
 
 - O prompt builder e o decoder categórico/pointer estão implementados e
   testados com logits sintéticos.
-- O pré-processamento ONNX de imagem/áudio ainda não está ligado ao
-  `image_features`/`audio_features`; a UI aceita o anexo e o motor devolve um
-  erro explícito.
+- Imagem e áudio estão ligados ao `image_features`/`audio_features`:
+  `d1_vision.dart` gera `pixel_values` `[grid_h,grid_w,2,2,1536]` e
+  `d1_audio.dart` gera o log-mel oficial `[1,128,frames]` (FFT 400,
+  hop 160, 128 mel Slaney, `(log10+4)/4`). Vídeo continua a exigir o
+  processor temporal e devolve erro explícito.
 - A via GGUF do llama.cpp só faz `noul`/`choice`/`score`.

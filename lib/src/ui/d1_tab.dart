@@ -329,6 +329,20 @@ class _D1TabState extends State<D1Tab> {
           error: true);
       return;
     }
+    if (_attachments.any((a) => a.kind == MediaKind.video)) {
+      showSnack(context,
+          'Vídeo no d1 ONNX exige o processor temporal oficial; usa imagem, '
+          'áudio (d1-Omni) ou o LFM3-VL/Omni via libmtmd.',
+          error: true);
+      return;
+    }
+    if (_attachments.any((a) => a.kind == MediaKind.audio) &&
+        !bundle.supportsAudio) {
+      showSnack(context,
+          'Áudio no d1 exige o bundle d1-Omni-2B-ONNX (audio_encoder).',
+          error: true);
+      return;
+    }
     setState(() => _running = true);
     try {
       final services = AppServices.instance;

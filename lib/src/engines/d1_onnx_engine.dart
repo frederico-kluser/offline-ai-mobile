@@ -15,15 +15,19 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:onnxruntime_v2/onnxruntime_v2.dart';
 
 import '../domain/d1_decision_types.dart';
 import '../domain/llm_config.dart';
+import '../services/media_preprocessor.dart';
+import 'd1_audio.dart';
 import 'd1_engine.dart';
 import 'd1_output.dart';
 import 'd1_prompt.dart';
 import 'd1_tokenizer.dart';
+import 'd1_vision.dart';
 
 class D1OnnxEngine implements D1Engine {
   Isolate? _isolate;
@@ -31,6 +35,7 @@ class D1OnnxEngine implements D1Engine {
   bool _ready = false;
   String? _loadError;
   String? _modelPath;
+  D1ModelPaths? _paths;
   int _nextId = 0;
   final Map<int, Completer<Object?>> _inflight = {};
 
@@ -49,7 +54,12 @@ class D1OnnxEngine implements D1Engine {
   D1BackendKind get backend => D1BackendKind.onnx;
 
   @override
-  D1Capabilities get capabilities => D1Capabilities.onnxFull;
+  D1Capabilities get capabilities => D1Capabilities(
+        types: D1Capabilities.onnxVisionText.types,
+        vision: _paths?.visionEncoderPath != null,
+        video: false,
+        audio: _paths?.audioEncoderPath != null,
+      );
 
   @override
   String? get loadError => _loadError;
@@ -63,6 +73,7 @@ class D1OnnxEngine implements D1Engine {
     _ready = false;
     _loadError = null;
     _modelPath = paths.decoderPath;
+    _paths = paths;
 
     final handshake = ReceivePort();
     final isolate = await Isolate.spawn(
@@ -98,19 +109,47 @@ class D1OnnxEngine implements D1Engine {
         'D1OnnxEngine: motor não carregado. ${_loadError ?? 'Chame load() primeiro.'}',
       );
     }
-    if (request.media.isNotEmpty) {
-      throw const D1Unavailable(
-        'o caminho ONNX de mídia (imagem/vídeo/áudio) exige o processor '
-        'oficial e os tensores image_features/video_features/audio_features; '
-        'esta build só executa o decisor de texto. Usa o runner oficial '
-        'enquanto o processor não estiver ligado.',
-      );
+    final prepared = <Map<String, Object?>>[];
+    for (final m in request.media) {
+      switch (m.kind) {
+        case D1MediaKind.image:
+          final img = await const MediaPreprocessor().prepareImage(m.path);
+          prepared.add({
+            'kind': 'image',
+            'width': img.width,
+            'height': img.height,
+            'rgb': img.rgb,
+          });
+        case D1MediaKind.audio:
+          if (_paths?.audioEncoderPath == null) {
+            throw const D1Unavailable(
+              'este bundle d1 não tem audio_encoder; usa d1-Omni-2B-ONNX '
+              'para áudio.',
+            );
+          }
+          final audio = await const MediaPreprocessor().prepareAudio(m.path);
+          prepared.add({
+            'kind': 'audio',
+            'samples': audio.samples,
+            'sample_rate': audio.sampleRate,
+          });
+        case D1MediaKind.video:
+          throw const D1Unavailable(
+            'vídeo no d1 ONNX exige o processor temporal oficial '
+            '(video_features), ainda não ligado; usa imagem/áudio ou o '
+            'LFM3-VL/Omni via libmtmd.',
+          );
+      }
     }
     final reply = ReceivePort();
     final result = await _request(
       reply,
       commands,
-      _DecideCmd(request: request, reply: reply.sendPort),
+      _DecideCmd(
+        request: request,
+        media: prepared,
+        reply: reply.sendPort,
+      ),
     );
     reply.close();
     if (result is _Err) {
@@ -188,9 +227,14 @@ class _LoadCmd extends _Cmd {
 
 class _DecideCmd extends _Cmd {
   final D1Request request;
+  final List<Map<String, Object?>> media;
   @override
   final SendPort reply;
-  const _DecideCmd({required this.request, required this.reply});
+  const _DecideCmd({
+    required this.request,
+    required this.media,
+    required this.reply,
+  });
 }
 
 class _UnloadCmd extends _Cmd {
@@ -250,6 +294,9 @@ Future<void> _d1WorkerMain(SendPort handshake) async {
             request: cmd.request,
             tokenizer: tok,
             decoder: dec,
+            vision: vision,
+            audio: audio,
+            media: cmd.media,
             config: config,
             outputDecoder: outputDecoder,
           );
@@ -335,6 +382,9 @@ Object _workerDecide({
   required D1Request request,
   required D1Tokenizer tokenizer,
   required OrtSession decoder,
+  required OrtSession? vision,
+  required OrtSession? audio,
+  required List<Map<String, Object?>> media,
   required D1Config config,
   required D1OutputDecoder outputDecoder,
 }) {
@@ -346,6 +396,50 @@ Object _workerDecide({
   final answers = <String, D1Answer>{};
   var inputTokens = 0;
   var slotCount = 0;
+
+  // ---- features visuais/áudio (uma vez por pedido) ---------------------
+  var imageFeatures = <double>[];
+  var imageTokens = 0;
+  var audioFeatures = <double>[];
+  var audioTokens = 0;
+  for (final m in media) {
+    if (m['kind'] == 'image') {
+      if (vision == null) {
+        return _Err('bundle d1 sem vision_encoder; não é possível usar imagem');
+      }
+      final tensor = buildD1PixelValues(PreparedImage(
+        width: m['width']! as int,
+        height: m['height']! as int,
+        rgb: m['rgb']! as Uint8List,
+      ));
+      final out = _runVision(vision, tensor);
+      if (out is _Err) return out;
+      imageFeatures.addAll((out as _Ok).payload as List<double>);
+    } else if (m['kind'] == 'audio') {
+      if (audio == null) {
+        return _Err('bundle d1 sem audio_encoder; não é possível usar áudio');
+      }
+      final tensor = buildD1LogMel(PreparedAudio(
+        samples: m['samples']! as Float32List,
+        sampleRate: m['sample_rate']! as int,
+      ));
+      final out = _runAudio(audio, tensor);
+      if (out is _Err) return out;
+      audioFeatures.addAll((out as _Ok).payload as List<double>);
+    } else {
+      return _Err('tipo de mídia d1 desconhecido: ${m['kind']}');
+    }
+  }
+  if (imageFeatures.length % 2048 != 0) {
+    return _Err('vision_encoder devolveu ${imageFeatures.length} valores; '
+        'não é múltiplo de 2048');
+  }
+  imageTokens = imageFeatures.length ~/ 2048;
+  if (audioFeatures.length % 2048 != 0) {
+    return _Err('audio_encoder devolveu ${audioFeatures.length} valores; '
+        'não é múltiplo de 2048');
+  }
+  audioTokens = audioFeatures.length ~/ 2048;
 
   for (var i = 0; i < questions.length; i++) {
     final prompt = D1PromptBuilder(
@@ -365,6 +459,10 @@ Object _workerDecide({
       decoder: decoder,
       tokenizer: tokenizer,
       outputDecoder: outputDecoder,
+      imageFeatures: imageFeatures,
+      imageTokens: imageTokens,
+      audioFeatures: audioFeatures,
+      audioTokens: audioTokens,
     );
     if (one is _Err) return one;
     answers[questions[i].id] = (one as _Ok).payload as D1Answer;
@@ -387,6 +485,10 @@ Object _runOne({
   required OrtSession decoder,
   required D1Tokenizer tokenizer,
   required D1OutputDecoder outputDecoder,
+  List<double> imageFeatures = const [],
+  int imageTokens = 0,
+  List<double> audioFeatures = const [],
+  int audioTokens = 0,
 }) {
   final n = prompt.inputIds.length;
   final inputs = <String, OrtValue>{};
@@ -402,6 +504,18 @@ Object _runOne({
   addInt('position_ids', List<int>.generate(n, (i) => i), [1, n]);
   addInt('question_ids', prompt.questionIds, [1, n]);
   addInt('slot_positions', prompt.slotPositions, [prompt.slotPositions.length]);
+  if (available.contains('image_features') && imageFeatures.isNotEmpty) {
+    inputs['image_features'] = OrtValueTensor.createTensorWithDataList(
+      imageFeatures,
+      [imageTokens, 2048],
+    );
+  }
+  if (available.contains('audio_features') && audioFeatures.isNotEmpty) {
+    inputs['audio_features'] = OrtValueTensor.createTensorWithDataList(
+      audioFeatures,
+      [audioTokens, 2048],
+    );
+  }
 
   if (!available.contains('input_ids') ||
       !available.contains('attention_mask') ||
@@ -458,6 +572,64 @@ Object _runOne({
     for (final v in inputs.values) {
       v.release();
     }
+  }
+}
+
+Object _runVision(OrtSession session, D1PixelTensor tensor) {
+  if (session.inputNames.isEmpty || session.outputNames.isEmpty) {
+    return _Err('vision_encoder sem inputs/outputs');
+  }
+  final inputName = session.inputNames.contains('pixel_values')
+      ? 'pixel_values'
+      : session.inputNames.first;
+  final input =
+      OrtValueTensor.createTensorWithDataList(tensor.data, tensor.shape);
+  final runOptions = OrtRunOptions();
+  List<OrtValue?>? outputs;
+  try {
+    outputs = session.run(
+      runOptions,
+      {inputName: input},
+      [session.outputNames.first],
+    );
+    return _Ok(_flattenDoubles((outputs[0] as OrtValueTensor).value));
+  } catch (e) {
+    return _Err('vision_encoder falhou: $e');
+  } finally {
+    runOptions.release();
+    for (final o in outputs ?? const <OrtValue?>[]) {
+      o?.release();
+    }
+    input.release();
+  }
+}
+
+Object _runAudio(OrtSession session, D1AudioTensor tensor) {
+  if (session.inputNames.isEmpty || session.outputNames.isEmpty) {
+    return _Err('audio_encoder sem inputs/outputs');
+  }
+  final inputName = session.inputNames.contains('input_features')
+      ? 'input_features'
+      : session.inputNames.first;
+  final input =
+      OrtValueTensor.createTensorWithDataList(tensor.data, tensor.shape);
+  final runOptions = OrtRunOptions();
+  List<OrtValue?>? outputs;
+  try {
+    outputs = session.run(
+      runOptions,
+      {inputName: input},
+      [session.outputNames.first],
+    );
+    return _Ok(_flattenDoubles((outputs[0] as OrtValueTensor).value));
+  } catch (e) {
+    return _Err('audio_encoder falhou: $e');
+  } finally {
+    runOptions.release();
+    for (final o in outputs ?? const <OrtValue?>[]) {
+      o?.release();
+    }
+    input.release();
   }
 }
 

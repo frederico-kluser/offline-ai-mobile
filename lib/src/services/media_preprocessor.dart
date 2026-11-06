@@ -102,11 +102,13 @@ class MediaPreprocessor {
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
     var image = frame.image;
+    // O LFM3 (patch 16 × merge 2) e o d1 (grid de 32 px) exigem lados
+    // múltiplos de 32; limita o lado maior a 1024 para o prefill móvel.
     final maxSide = math.max(image.width, image.height);
-    if (maxSide > 1024) {
-      final scale = 1024 / maxSide;
-      final w = _multipleOf32((image.width * scale).round());
-      final h = _multipleOf32((image.height * scale).round());
+    final scale = maxSide > 1024 ? 1024 / maxSide : 1.0;
+    final w = _multipleOf32((image.width * scale).round());
+    final h = _multipleOf32((image.height * scale).round());
+    if (w != image.width || h != image.height) {
       final resized =
           await ui.instantiateImageCodec(bytes, targetWidth: w, targetHeight: h);
       final f2 = await resized.getNextFrame();
