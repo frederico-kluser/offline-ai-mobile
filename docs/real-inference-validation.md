@@ -31,6 +31,7 @@ o modelo pode ser pré-carregado com `adb push` para
 | d1-2B ONNX | idem, com imagem | `noul` visual com `image_features` | 46/0 | 1093 ms |
 | d1-Omni ONNX | `decoder_q4` + `audio_encoder_fp16` | `noul` falado com `audio_features` | 70/0 | 1668 ms |
 | d1-2B ONNX | `decoder_q4` + `vision_q8`, clipe 2 s | `noul` visual com `video_features` (frames 2 fps) | 50/0 | 1557 ms |
+| LFM3-VL-2B | VL + mmproj, clipe 2 s | vídeo vermelho → `"Laranja"` (frames 2 fps via `libmtmd`) | 51/4 | 744 ms |
 | LFM3-1.7B | idem, **Android x86_64** | `"Olá! Como posso ajudar você hoje?"` | 37/10 | 137 s* |
 
 \* Emulador Android x86_64 sem dotprod/i8mm (CPU emulada): o tempo não é
