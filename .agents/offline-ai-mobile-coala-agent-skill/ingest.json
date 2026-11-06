@@ -7,13 +7,91 @@
   "rules": [
     {
       "name": "readme",
-      "include": [
-        "README.md"
-      ],
+      "include": ["README.md"],
       "mode": "markdown",
       "type": "semantic",
       "origin": "agent",
-      "tags": "docs,readme"
+      "tags": "docs,readme,estado"
+    },
+    {
+      "name": "modelos",
+      "include": ["docs/modelos.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "modelos,downloads,guia,lfm3,d1"
+    },
+    {
+      "name": "estado",
+      "include": ["docs/estado-do-projeto.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "estado,arquitetura,ecras,testes"
+    },
+    {
+      "name": "migracao",
+      "include": ["docs/lfm3-migration.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "migracao,decisoes,lfm3,d1"
+    },
+    {
+      "name": "d1-contrato",
+      "include": ["docs/d1-onnx-contract.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "d1,onnx,contrato,tensores"
+    },
+    {
+      "name": "validacao-real",
+      "include": ["docs/real-inference-validation.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "testes,validacao,latencia,modelos"
+    },
+    {
+      "name": "ct-cenarios",
+      "include": ["docs/ct-scenarios.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "testes,ct,integracao"
+    },
+    {
+      "name": "runbook-iphone",
+      "include": ["docs/runbook-iphone-fisico.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "ios,metal,runbook"
+    },
+    {
+      "name": "llama-ffi",
+      "include": ["tools/llama_ffi.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "llama.cpp,ffi,mtmd,build"
+    },
+    {
+      "name": "modelos-release",
+      "include": ["models-repo/README.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "modelos,release,downloads,sha256"
+    },
+    {
+      "name": "modelos-release-notas",
+      "include": ["models-repo/RELEASE_NOTES.md"],
+      "mode": "markdown",
+      "type": "semantic",
+      "origin": "agent",
+      "tags": "modelos,release,licenca"
     }
   ],
   "graph": {

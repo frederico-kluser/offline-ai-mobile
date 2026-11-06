@@ -66,7 +66,8 @@ prefill/decode reais e ajusta o contexto/`image_max_tokens`/raciocínio.
 O catálogo aponta para o espelho
 [`lfm3-mobile-models`](https://github.com/frederico-kluser/lfm3-mobile-models)
 (release `models-lfm3-suite-v1`, manifesto + SHA-256) e, em fallback, para o
-Hugging Face oficial:
+Hugging Face oficial. **Guia completo de cada modelo, uso e links de
+download:** [`docs/modelos.md`](docs/modelos.md).
 
 | Bundle | Tamanho | Uso |
 | --- | --- | --- |
@@ -153,6 +154,10 @@ Detalhes e latências em
 
 ## Documentação
 
+- [`docs/estado-do-projeto.md`](docs/estado-do-projeto.md) — retrato definitivo
+  da arquitetura, ecrãs, motor, catálogo, build, testes e limitações.
+- [`docs/modelos.md`](docs/modelos.md) — o que é cada modelo, para que serve,
+  como usar e links de download (GGUF, mmproj e ONNX).
 - [`docs/lfm3-migration.md`](docs/lfm3-migration.md) — decisões da migração.
 - [`docs/d1-onnx-contract.md`](docs/d1-onnx-contract.md) — prompt, tensores e
   pós-processamento do d1.

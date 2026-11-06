@@ -5394,7 +5394,9 @@ def run_selftest() -> int:
             json.dump({"skill": os.path.basename(skill)}, fh)
         p1, h1, _ = resolve_db("/x/y.sqlite", env={DB_ENV: "/z.sqlite"})
         p2, h2, _ = resolve_db(None, env={DB_ENV: "/z.sqlite"})
-        check("19 precedência --db > COALA_DB", p1 == "/x/y.sqlite" and p2 == "/z.sqlite" and "COALA_DB" in h2)
+        check("19 precedência --db > COALA_DB",
+              p1 == os.path.abspath("/x/y.sqlite") and p2 == os.path.abspath("/z.sqlite")
+              and "COALA_DB" in h2)
         p3, h3, sk3 = resolve_db(None, env={}, engine_file=os.path.join(skill, "scripts", "coala.py"))
         check("20 motor vendorizado usa a memória da sua skill",
               p3 == os.path.join(skill, "memory", "coala.sqlite") and sk3 == skill, p3)
@@ -5443,7 +5445,8 @@ def run_selftest() -> int:
         bk, res_bk, n_bk = backup_db(fake_db)
         n_now = conn.execute("SELECT COUNT(*) FROM memory_entries").fetchone()[0]
         check("26 backup consistente (0600, quick_check ok, mesma contagem)",
-              res_bk == "ok" and n_bk == n_now and _mode(bk) == 0o600, f"{res_bk} {n_bk}/{n_now}")
+              res_bk == "ok" and n_bk == n_now
+              and (os.name == "nt" or _mode(bk) == 0o600), f"{res_bk} {n_bk}/{n_now}")
         insert_entry(conn, backend, "episodic", "registo depois do backup", "agent")
         conn.commit()
         try:
