@@ -93,11 +93,17 @@ class D1PromptBuilder {
   /// Lead do LFM3 (vazio; o chat template não acrescenta texto).
   final String lead;
 
+  /// Nº de tokens de feature por item de `request.media` (o processor oficial
+  /// expande cada `<|image|>`/`<|audio|>` num token por feature). `null` =
+  /// 1 por item (compatibilidade com prompts de texto).
+  final List<int>? mediaTokenCounts;
+
   const D1PromptBuilder({
     required this.tokenizer,
     this.maxStateTokens = 8192,
     this.maxQuestions = 16,
     this.lead = '',
+    this.mediaTokenCounts,
   });
 
   /// Constrói o prompt de UMA pergunta (índice [questionIndex]).
@@ -106,12 +112,22 @@ class D1PromptBuilder {
     final state = _truncateState(request.state, maxStateTokens ~/ 2);
     final text = StringBuffer()
       ..write('<|startoftext|><|im_start|>user\n');
-    for (final m in request.media) {
-      text.writeln(switch (m.kind) {
+    for (var i = 0; i < request.media.length; i++) {
+      final m = request.media[i];
+      final marker = switch (m.kind) {
         D1MediaKind.image => '<|image|>',
         D1MediaKind.video => '<|video|>',
         D1MediaKind.audio => '<|audio|>',
-      });
+      };
+      final count = mediaTokenCounts != null && i < mediaTokenCounts!.length
+          ? mediaTokenCounts![i].clamp(1, 4096).toInt()
+          : 1;
+      // O chat template envolve a mídia em <|vision_start|>…<|vision_end|>.
+      text.write('<|vision_start|>');
+      for (var t = 0; t < count; t++) {
+        text.write(marker);
+      }
+      text.writeln('<|vision_end|>');
     }
     final stateStart = text.length;
     if (state.isNotEmpty) text.write(state);

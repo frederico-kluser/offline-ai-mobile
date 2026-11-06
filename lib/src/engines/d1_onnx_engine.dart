@@ -407,6 +407,7 @@ Object _workerDecide({
   var imageTokens = 0;
   var audioFeatures = <double>[];
   var audioTokens = 0;
+  final mediaTokenCounts = <int>[];
   for (final m in media) {
     if (m['kind'] == 'image') {
       if (vision == null) {
@@ -419,7 +420,13 @@ Object _workerDecide({
       ));
       final out = _runVision(vision, tensor);
       if (out is _Err) return out;
-      imageFeatures.addAll((out as _Ok).payload as List<double>);
+      final part = (out as _Ok).payload as List<double>;
+      if (part.length % 2048 != 0) {
+        return _Err('vision_encoder devolveu ${part.length} valores; '
+            'não é múltiplo de 2048');
+      }
+      mediaTokenCounts.add(part.length ~/ 2048);
+      imageFeatures.addAll(part);
     } else if (m['kind'] == 'audio') {
       if (audio == null) {
         return _Err('bundle d1 sem audio_encoder; não é possível usar áudio');
@@ -430,7 +437,13 @@ Object _workerDecide({
       ));
       final out = _runAudio(audio, tensor);
       if (out is _Err) return out;
-      audioFeatures.addAll((out as _Ok).payload as List<double>);
+      final part = (out as _Ok).payload as List<double>;
+      if (part.length % 2048 != 0) {
+        return _Err('audio_encoder devolveu ${part.length} valores; '
+            'não é múltiplo de 2048');
+      }
+      mediaTokenCounts.add(part.length ~/ 2048);
+      audioFeatures.addAll(part);
     } else {
       return _Err('tipo de mídia d1 desconhecido: ${m['kind']}');
     }
@@ -451,6 +464,7 @@ Object _workerDecide({
       tokenizer: tokenizer,
       maxStateTokens: config.maxStateTokens,
       maxQuestions: config.maxQuestions,
+      mediaTokenCounts: mediaTokenCounts,
     ).build(request, questionIndex: i);
     if (prompt.inputIds.length > config.maxStateTokens) {
       return _Err(
