@@ -1,27 +1,24 @@
-/// Motor de inferência do MiniCPM5-2B sobre llama.cpp via `dart:ffi`.
+/// Motor de inferência da família Liquid LFM3 sobre llama.cpp via `dart:ffi`.
 ///
 /// Arquitetura:
 ///  - TODO o código nativo (llama.cpp) corre num ISOLATE próprio
-///    ([_workerMain]) — nunca na UI thread. O isolate de UI só troca
-///    mensagens (SendPort/ReceivePort) com tipos primitivos;
+///    ([_workerMain]) — nunca na UI thread;
 ///  - as `.so` (libllama.so + libggml*.so) entram pela APK via
-///    `android/app/src/main/jniLibs/<abi>/` e são abertas COM
-///    [DynamicLibrary.open] por nome de ficheiro (`DynamicLibrary.process()`
-///    não enxerga libs carregadas pelo Android linker);
-///  - sem `package:ffi`: o `malloc`/`calloc`/`free` vêm do libc, ligados por
-///    FFI (o pubspec não tem `package:ffi` — ver tools/llama_ffi.md);
-///  - structs por valor (llama_model_params, llama_context_params,
-///    llama_batch, llama_sampler_chain_params) são passadas diretamente —
-///    o `dart:ffi` atual implementa o ABI C completo para isso;
-///  - o prompt é renderizado com o chat template oficial do MiniCPM5
-///    ([renderChat] em `lib/src/agent/minicpm5_chat.dart` — ficheiro não é
-///    alterado, apenas usado);
-///  - a cadeia de samplers segue EXATAMENTE [LlmConfig.samplersOrder]
-///    (`penalties;dry;top_k;top_p;min_p;temperature`) terminando em
-///    `dist(seed)` — determinística. Com `temperature <= 0` o terminal é
-///    `greedy` (ver nota em [_Worker._buildChain]);
-///  - abort: mensagem `abort` processada entre tokens (o loop de geração
-///    cede o event loop por token) → `stopReason: 'aborted'`.
+///    `android/app/src/main/jniLibs/<abi>/`; no iOS os símbolos vêm do
+///    `llama.xcframework` ligado ao binário;
+///  - structs por valor (`llama_model_params`, `llama_context_params`,
+///    `llama_batch`, `llama_sampler_chain_params`) seguem o layout do
+///    llama.cpp **b12088** (o `llama_context_params` inclui
+///    `moe_cache_size`; ver `tools/llama_ffi.md`);
+///  - o prompt é renderizado com o ChatML do LFM3
+///    ([renderChat] em `lib/src/agent/lfm3_chat.dart`);
+///  - a cadeia de samplers segue EXATAMENTE [LlmConfig.samplersOrder],
+///    terminando em `dist(seed)` ou `greedy` (temperature 0);
+///  - o raciocínio `<think>` é separado em [GenDelta.thinking] e limitado por
+///    [LlmConfig.maxThinkingTokens];
+///  - a mídia (imagem/vídeo/áudio) é tratada pelo módulo mtmd
+///    (`mtmd_multimodal_ffi_engine.dart`); esta classe aceita o caminho do
+///    projetor, mas o pipeline de mídia é ligado nesse módulo.
 library;
 
 import 'dart:async';
@@ -30,10 +27,14 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
-import '../agent/minicpm5_chat.dart' as mc;
+import '../agent/lfm3_chat.dart' as lfm3;
 import '../domain/llm_config.dart';
+import '../domain/media_attachment.dart';
+import '../services/media_preprocessor.dart';
 import 'llm_engine.dart';
+import 'mtmd_bindings.dart';
 
 // =============================================================================
 // Alocação nativa (libc) — substituto mínimo do `package:ffi`.
@@ -57,7 +58,7 @@ DynamicLibrary _openLlamaLibrary() {
   if (Platform.isIOS || Platform.isMacOS) {
     return DynamicLibrary.process();
   }
-  return DynamicLibrary.open(LlamaFfiEngine.libName);
+  return DynamicLibrary.open(LlamaLfm3FfiEngine.libName);
 }
 
 final DynamicLibrary _libc = _openLibc();
@@ -169,6 +170,8 @@ final class _ContextParams extends Struct {
   external int typeK;
   @Int32()
   external int typeV;
+  @Uint64()
+  external int moeCacheSize; // size_t (b12088)
   external Pointer<Void> abortCallback;
   external Pointer<Void> abortCallbackData;
   @Bool()
@@ -421,6 +424,11 @@ class _Worker {
   int nCtx = 0;
   int nVocab = 0;
   int nBatch = 2048;
+  MtmdBindings? mtmd;
+  Pointer<Void> mtmdCtx = nullptr;
+  bool mtmdVision = false;
+  bool mtmdAudio = false;
+  String? loadedMmproj;
 
   /// Tokens da sequência atual no KV cache (para `cachePrompt`).
   List<int> cachedTokens = const [];
@@ -435,7 +443,9 @@ class _Worker {
   void load(Map<String, Object?> m) {
     final reply = m['reply'] as SendPort;
     final path = m['path'] as String;
+    final mmprojPath = m['mmproj'] as String?;
     final cfg = LlmConfig.fromJson((m['config'] as Map).cast<String, dynamic>());
+    final notes = <String>[];
     try {
       if (busy) {
         reply.send({'ok': false, 'error': 'ocupado: geração em curso'});
@@ -485,14 +495,20 @@ class _Worker {
       // Flash Attention: ENABLED quando há GPU Apple ativa (verificado no
       // macOS com saída correta); AUTO nos restantes (enum: -1/0/1).
       final cp = b.contextDefaultParams();
-      if ((Platform.isIOS || Platform.isMacOS) && useGpuLayers != 0) {
-      }
       nCtx = cfg.contextSize;
       cp.nCtx = nCtx;
-      if (cp.nBatch == 0 || cp.nBatch > nCtx) cp.nBatch = nCtx;
+      cp.nBatch = cfg.nBatch > 0 ? cfg.nBatch : math.min(nCtx, 2048);
+      if (cp.nBatch > nCtx) cp.nBatch = nCtx;
+      cp.nUbatch = cfg.nUbatch > 0 ? cfg.nUbatch : math.min(cp.nBatch, 512);
+      if (cp.nUbatch > cp.nBatch) cp.nUbatch = cp.nBatch;
       nBatch = cp.nBatch;
       cp.nThreads = cfg.threads;
       cp.nThreadsBatch = cfg.threads;
+      // KV cache: F16 (12,29 KB/token) ou Q8_0 (6,53 KB/token).
+      cp.typeK = cfg.kvTypeK.ggmlType;
+      cp.typeV = cfg.kvTypeV.ggmlType;
+      cp.flashAttnType = cfg.flashAttn ? 1 : 0;
+      cp.nSeqMax = 1;
 
       ctx = b.initFromModel(model, cp);
       if (ctx == nullptr) {
@@ -507,12 +523,46 @@ class _Worker {
       final nCtxActual = b.nCtx(ctx);
       b.memoryClear(b.getMemory(ctx), true);
       cachedTokens = const [];
+      loadedMmproj = mmprojPath;
+
+      // ---- libmtmd: projetor multimodal (opcional) ----------------------
+      if (mmprojPath != null && mmprojPath.isNotEmpty) {
+        mtmd = MtmdBindings.tryOpen();
+        if (mtmd == null) {
+          notes.add('aviso: libmtmd indisponível; mídia desativada');
+        } else {
+          final params = mtmd!.contextDefaultParams();
+          params.useGpu = useGpuLayers != 0;
+          params.nThreads = cfg.threads;
+          params.imageMaxTokens = cfg.imageMaxTokens;
+          final marker = _utf8z(lfm3.Lfm3Markup.mediaMarker);
+          params.mediaMarker = marker;
+          final mmprojPtr = _utf8z(mmprojPath);
+          mtmdCtx = mtmd!.initFromFile(mmprojPtr, model, params);
+          _release(mmprojPtr);
+          _release(marker);
+          if (mtmdCtx == nullptr) {
+            notes.add('aviso: mtmd_init_from_file devolveu NULL');
+            mtmd = null;
+          } else {
+            mtmdVision = mtmd!.supportVision(mtmdCtx);
+            mtmdAudio = mtmd!.supportAudio(mtmdCtx);
+          }
+        }
+      }
+
       reply.send({
         'ok': true,
         'n_embd': b.modelNEmbd(model),
         'n_vocab': nVocab,
         'n_ctx': nCtxActual,
         'dry': b.hasDry,
+        'mmproj': mmprojPath,
+        'mmap': true,
+        'mtmd': mtmdCtx != nullptr,
+        'mtmd_vision': mtmdVision,
+        'mtmd_audio': mtmdAudio,
+        'notes': notes.join('; '),
       });
     } catch (e) {
       reply.send({'ok': false, 'error': '$e'});
@@ -553,6 +603,14 @@ class _Worker {
 
   void _unloadNative() {
     final b = lib;
+    if (mtmdCtx != nullptr && mtmd != null) {
+      mtmd!.free(mtmdCtx);
+      mtmdCtx = nullptr;
+    }
+    mtmd = null;
+    mtmdVision = false;
+    mtmdAudio = false;
+    loadedMmproj = null;
     if (b != null) {
       if (ctx != nullptr) {
         b.contextFree(ctx);
@@ -609,6 +667,9 @@ class _Worker {
     final sw = Stopwatch()..start();
     var promptTokens = 0;
     var outputTokens = 0;
+    var thinkingTokens = 0;
+    var prefillMs = 0;
+    var decodeMs = 0;
     var stop = 'error';
     String? error;
     final notes = <String>[];
@@ -622,88 +683,238 @@ class _Worker {
       // ---- sampler chain pela ordem canónica (LlmConfig.samplersOrder) ----
       chain = _buildChain(cfg, notes);
 
-      // ---- prompt → tokens (add_special + parse_special) -----------------
-      final toks = _tokenize(prompt, addSpecial: true, parseSpecial: true);
-      promptTokens = toks.length;
-      if (promptTokens == 0) {
-        throw StateError('prompt vazio após tokenização');
-      }
-      if (promptTokens >= nCtx) {
-        throw StateError(
-            'prompt tem $promptTokens tokens mas o contexto é $nCtx');
-      }
-      var budget = maxTokens;
-      final room = nCtx - promptTokens;
-      if (budget > room) budget = room; // o teto nunca ultrapassa o contexto
+      var total = 0;
+      var sampleIdx = 0;
+      final mediaList = (m['media'] as List?) ?? const [];
 
-      // ---- KV cache: clear, ou reutilização de prefixo (cachePrompt) ------
-      var reuse = 0;
-      if (cfg.cachePrompt && cachedTokens.isNotEmpty) {
-        final limit = math.min(cachedTokens.length, toks.length);
-        while (reuse < limit && cachedTokens[reuse] == toks[reuse]) {
-          reuse++;
+      if (mediaList.isNotEmpty) {
+        // ---- caminho multimodal: libmtmd tokeniza + avalia os chunks ------
+        if (mtmdCtx == nullptr || mtmd == null) {
+          throw StateError(
+              'mídia recebida mas o projetor libmtmd não está carregado');
         }
-        // O último token do prompt tem de ser sempre decodificado para
-        // produzir logits — nunca reutilizar o prompt inteiro.
-        if (reuse > toks.length - 1) reuse = toks.length - 1;
-        // Aproveitar só o alinhamento de tokens por posição.
-        if (reuse > 0) {
-          b.memorySeqRm(b.getMemory(ctx), 0, reuse, -1);
+        b.memoryClear(b.getMemory(ctx), true);
+        b.setNThreads(ctx, cfg.threads, cfg.threads);
+        final bitmaps = <MtmdBitmap>[];
+        MtmdInputChunks? chunks;
+        final nPast = _alloc<Int32>(4);
+        try {
+          for (final raw in mediaList) {
+            final map = (raw as Map).cast<String, Object?>();
+            final kind = map['kind'] as String?;
+            if (kind == 'image') {
+              final img = (map['image'] as Map).cast<String, Object?>();
+              final rgb = img['rgb']! as Uint8List;
+              final ptr = _alloc<Uint8>(rgb.length);
+              ptr.asTypedList(rgb.length).setAll(0, rgb);
+              bitmaps.add(mtmd!.image(
+                width: img['width']! as int,
+                height: img['height']! as int,
+                rgb: ptr,
+              ));
+            } else if (kind == 'audio') {
+              final a = (map['audio'] as Map).cast<String, Object?>();
+              final samples = a['samples']! as Float32List;
+              final ptr = _alloc<Float>(samples.length * sizeOf<Float>());
+              ptr.asTypedList(samples.length).setAll(0, samples);
+              bitmaps.add(mtmd!.audio(
+                samples: ptr,
+                nSamples: samples.length,
+              ));
+            } else if (kind == 'video') {
+              final v = (map['video'] as Map).cast<String, Object?>();
+              for (final f in (v['frames'] as List? ?? const [])) {
+                final frame = (f as Map).cast<String, Object?>();
+                final rgb = frame['rgb']! as Uint8List;
+                final ptr = _alloc<Uint8>(rgb.length);
+                ptr.asTypedList(rgb.length).setAll(0, rgb);
+                final bm = mtmd!.image(
+                  width: frame['width']! as int,
+                  height: frame['height']! as int,
+                  rgb: ptr,
+                );
+                bm.setMergeable(true);
+                bm.setIsVideo(true);
+                bitmaps.add(bm);
+              }
+              final s = v['soundtrack'];
+              if (s is Map) {
+                final samples = s['samples']! as Float32List;
+                final ptr = _alloc<Float>(samples.length * sizeOf<Float>());
+                ptr.asTypedList(samples.length).setAll(0, samples);
+                bitmaps.add(mtmd!.audio(samples: ptr, nSamples: samples.length));
+              }
+            }
+          }
+
+          chunks = mtmd!.tokenizeText(
+            context: mtmdCtx,
+            text: prompt,
+            bitmaps: bitmaps,
+            addSpecial: false,
+            parseSpecial: true,
+          );
+          final rc = mtmd!.helperEval(
+            mtmdCtx,
+            ctx,
+            chunks.ptr,
+            0,
+            0,
+            nBatch,
+            true,
+            nPast,
+          );
+          if (rc != 0) {
+            throw StateError('mtmd_helper_eval_chunks devolveu $rc');
+          }
+          total = nPast.value;
+          promptTokens = total;
+          sampleIdx = -1; // logits do último token avaliado
+          if (total >= nCtx) {
+            throw StateError('prompt multimodal ($total tokens) excede $nCtx');
+          }
+          cachedTokens = const [];
+        } finally {
+          _release(nPast);
+          chunks?.dispose();
+          for (final bm in bitmaps) {
+            bm.dispose();
+          }
+        }
+      } else {
+        // ---- prompt → tokens (add_special + parse_special) ---------------
+        final toks = _tokenize(prompt, addSpecial: true, parseSpecial: true);
+        promptTokens = toks.length;
+        if (promptTokens == 0) {
+          throw StateError('prompt vazio após tokenização');
+        }
+        if (promptTokens >= nCtx) {
+          throw StateError(
+              'prompt tem $promptTokens tokens mas o contexto é $nCtx');
+        }
+
+        // ---- KV cache: clear, ou reutilização de prefixo (cachePrompt) ---
+        var reuse = 0;
+        if (cfg.cachePrompt && cachedTokens.isNotEmpty) {
+          final limit = math.min(cachedTokens.length, toks.length);
+          while (reuse < limit && cachedTokens[reuse] == toks[reuse]) {
+            reuse++;
+          }
+          if (reuse > toks.length - 1) reuse = toks.length - 1;
+          if (reuse > 0) {
+            b.memorySeqRm(b.getMemory(ctx), 0, reuse, -1);
+          } else {
+            b.memoryClear(b.getMemory(ctx), true);
+          }
         } else {
           b.memoryClear(b.getMemory(ctx), true);
         }
-      } else {
-        b.memoryClear(b.getMemory(ctx), true);
-      }
 
-      // O sampler tem de conhecer TODO o prompt (penalties/DRY).
-      for (final t in toks) {
-        b.accept(chain, t);
-      }
+        // O sampler tem de conhecer TODO o prompt (penalties/DRY).
+        for (final t in toks) {
+          b.accept(chain, t);
+        }
+        b.setNThreads(ctx, cfg.threads, cfg.threads);
 
-      // Threads por chamada (config re-aplicada).
-      b.setNThreads(ctx, cfg.threads, cfg.threads);
-
-      // ---- decode do prompt em chunks, logits só no último token ---------
-      final total = toks.length;
-      var sampleIdx = 0;
-      for (var i = reuse; i < total;) {
-        final len = math.min(nBatch, total - i);
-        final batch = b.batchInit(len, 0, 1);
-        for (var j = 0; j < len; j++) {
-          batch.token[j] = toks[i + j];
-          batch.pos[j] = i + j; // posições absolutas
-          batch.nSeqId[j] = 1;
-          batch.seqId[j][0] = 0;
-          batch.logits[j] = (i + j == total - 1) ? 1 : 0;
-        }
-        batch.nTokens = len;
-        final rc = b.decode(ctx, batch);
-        b.batchFree(batch);
-        if (rc != 0) {
-          throw StateError('llama_decode(prompt) devolveu $rc '
-              '(tokens $i..${i + len - 1})');
-        }
-        i += len;
-        sampleIdx = len - 1; // último token do último chunk = fim do prompt
-        if (abortRequested) {
-          stop = 'aborted';
-          break;
-        }
-        if (i < total) {
-          await Future<void>.delayed(Duration.zero); // cede p/ abort
+        total = toks.length;
+        for (var i = reuse; i < total;) {
+          final len = math.min(nBatch, total - i);
+          final batch = b.batchInit(len, 0, 1);
+          for (var j = 0; j < len; j++) {
+            batch.token[j] = toks[i + j];
+            batch.pos[j] = i + j;
+            batch.nSeqId[j] = 1;
+            batch.seqId[j][0] = 0;
+            batch.logits[j] = (i + j == total - 1) ? 1 : 0;
+          }
+          batch.nTokens = len;
+          final rc = b.decode(ctx, batch);
+          b.batchFree(batch);
+          if (rc != 0) {
+            throw StateError('llama_decode(prompt) devolveu $rc '
+                '(tokens $i..${i + len - 1})');
+          }
+          i += len;
+          sampleIdx = len - 1;
           if (abortRequested) {
             stop = 'aborted';
             break;
           }
+          if (i < total) {
+            await Future<void>.delayed(Duration.zero);
+            if (abortRequested) {
+              stop = 'aborted';
+              break;
+            }
+          }
         }
+        cachedTokens = [...toks];
       }
 
+      var budget = maxTokens;
+      final room = nCtx - promptTokens;
+      if (budget > room) budget = room;
+
+      prefillMs = sw.elapsedMilliseconds;
+
       // ---- ciclo de geração ----------------------------------------------
-      // Marcador de fim de turno do template MiniCPM5.
-      final endMarker = mc.Tags.open('im_end');
-      var held = '';
+      final endMarker = lfm3.Lfm3Markup.imEnd;
+      var pending = '';
+      var inThink = cfg.enableThinking;
+      var hitEnd = false;
       final generated = <int>[];
+
+      void emitChunk(String text, bool thinking) {
+        if (text.isEmpty) return;
+        events.send({'e': 'delta', 't': text, 'think': thinking});
+      }
+
+      bool drain({required bool flushAll}) {
+        final buf = StringBuffer();
+        var i = 0;
+        while (i < pending.length) {
+          if (pending.startsWith(endMarker, i)) {
+            emitChunk(buf.toString(), inThink);
+            buf.clear();
+            pending = pending.substring(i + endMarker.length);
+            hitEnd = true;
+            stop = 'stop_string';
+            return false;
+          }
+          if (pending.startsWith(lfm3.Lfm3Markup.thinkStart, i)) {
+            emitChunk(buf.toString(), inThink);
+            buf.clear();
+            inThink = true;
+            i += lfm3.Lfm3Markup.thinkStart.length;
+            continue;
+          }
+          if (pending.startsWith(lfm3.Lfm3Markup.thinkEnd, i)) {
+            emitChunk(buf.toString(), inThink);
+            buf.clear();
+            inThink = false;
+            i += lfm3.Lfm3Markup.thinkEnd.length;
+            continue;
+          }
+          if (!flushAll) {
+            var hold = 0;
+            for (var k = 1; k <= 12 && k <= pending.length - i; k++) {
+              final suffix = pending.substring(pending.length - k);
+              if (endMarker.startsWith(suffix) ||
+                  lfm3.Lfm3Markup.thinkStart.startsWith(suffix) ||
+                  lfm3.Lfm3Markup.thinkEnd.startsWith(suffix)) {
+                hold = k;
+              }
+            }
+            if (hold > 0 && i >= pending.length - hold) break;
+          }
+          buf.write(pending[i]);
+          i++;
+        }
+        pending = pending.substring(i);
+        emitChunk(buf.toString(), inThink);
+        return true;
+      }
+
       if (stop != 'aborted') {
         for (var step = 0; step < budget; step++) {
           final tok = b.sample(chain, ctx, sampleIdx);
@@ -715,22 +926,14 @@ class _Worker {
             break;
           }
 
-          // Peça de texto, com retenção de sufixo que pode vir a ser o
-          // início de '<im_end>' (pode partir-se entre tokens).
-          held += piece(tok);
-          final cut = held.indexOf(endMarker);
-          if (cut >= 0) {
-            events.send({'e': 'delta', 't': held.substring(0, cut)});
-            stop = 'stop_string';
+          pending += piece(tok);
+          if (!drain(flushAll: false)) break;
+          if (inThink) thinkingTokens++;
+          if (cfg.maxThinkingTokens > 0 &&
+              thinkingTokens >= cfg.maxThinkingTokens) {
+            stop = 'thinking_budget';
             break;
           }
-          var hold = 0;
-          for (var k = 1; k < endMarker.length && k <= held.length; k++) {
-            if (held.endsWith(endMarker.substring(0, k))) hold = k;
-          }
-          final out = held.substring(0, held.length - hold);
-          held = held.substring(held.length - hold);
-          events.send({'e': 'delta', 't': out}); // 1 GenDelta por token
 
           if (step == budget - 1) {
             stop = 'max_tokens';
@@ -766,15 +969,17 @@ class _Worker {
         }
       }
 
-      // Texto ainda retido por causa de um possível '<im_end>' partido:
-      // emite-se, salvo quando a paragem foi exactamente por esse marcador.
-      if (stop != 'stop_string' && held.isNotEmpty) {
-        events.send({'e': 'delta', 't': held});
-        held = '';
+      // Texto ainda retido por causa de um possível marcador partido.
+      if (stop != 'aborted' && !hitEnd) {
+        drain(flushAll: true);
       }
+      decodeMs = sw.elapsedMilliseconds - prefillMs;
 
       // ---- bookkeeping do cache de prompt --------------------------------
-      cachedTokens = [...toks, ...generated];
+      // Só o caminho de texto reutiliza o prefixo; mídia invalida o cache.
+      if (mediaList.isEmpty) {
+        cachedTokens = [...cachedTokens, ...generated];
+      }
     } catch (e) {
       stop = 'error';
       error = '$e';
@@ -789,6 +994,9 @@ class _Worker {
         'e': 'end',
         'pt': promptTokens,
         'ot': outputTokens,
+        'tt': thinkingTokens,
+        'pm': prefillMs,
+        'dm': decodeMs,
         'ms': sw.elapsedMilliseconds,
         'stop': stop,
         'err': error == null
@@ -921,8 +1129,8 @@ class _GenLink {
   final Completer<void> done = Completer<void>();
 }
 
-/// [LlmEngine] sobre llama.cpp (MiniCPM5-2B) — ver doc do ficheiro.
-class LlamaFfiEngine implements LlmEngine {
+/// [LlmEngine] sobre llama.cpp (família LFM3) — ver doc do ficheiro.
+class LlamaLfm3FfiEngine implements LlmEngine {
   /// Nome da biblioteca partilhada (empacotada em
   /// `android/app/src/main/jniLibs/<abi>/`). Aberta por NOME DE FICHEIRO —
   /// obrigatório no Android, onde as libs são carregadas pelo linker.
@@ -934,11 +1142,23 @@ class LlamaFfiEngine implements LlmEngine {
   Future<SendPort>? _ready;
   bool _loaded = false;
   String _modelPath = '';
+  String? _mmprojPath;
+  Lfm3ModelKind _kind = Lfm3ModelKind.text;
+  Lfm3ModelInfo? _info;
   int _genCounter = 0;
   _GenLink? _active;
 
   @override
   bool get isLoaded => _loaded;
+
+  @override
+  Lfm3ModelKind get kind => _kind;
+
+  @override
+  Lfm3ModelInfo? get info => _info;
+
+  /// Projetor multimodal carregado (se houver).
+  String? get mmprojPath => _mmprojPath;
 
   @override
   String get modelId {
@@ -981,7 +1201,10 @@ class LlamaFfiEngine implements LlmEngine {
     switch (m['e']) {
       case 'delta':
         if (!link.ctrl.isClosed) {
-          link.ctrl.add(GenDelta(m['t'] as String));
+          link.ctrl.add(GenDelta(
+            m['t'] as String,
+            thinking: m['think'] as bool? ?? false,
+          ));
         }
       case 'end':
         if (!link.ctrl.isClosed) {
@@ -991,6 +1214,9 @@ class LlamaFfiEngine implements LlmEngine {
             latencyMs: m['ms'] as int,
             stopReason: m['stop'] as String,
             error: m['err'] as String?,
+            thinkingTokens: m['tt'] as int? ?? 0,
+            prefillMs: m['pm'] as int? ?? 0,
+            decodeMs: m['dm'] as int? ?? 0,
           ));
         }
         _finish(link);
@@ -1018,12 +1244,17 @@ class LlamaFfiEngine implements LlmEngine {
 
   // ------------------------------------------------------------- load -----
   @override
-  Future<void> load(
-      {required String modelPath, required LlmConfig config}) async {
+  Future<void> load({
+    required String modelPath,
+    required LlmConfig config,
+    String? mmprojPath,
+    Lfm3ModelKind kind = Lfm3ModelKind.text,
+  }) async {
     await unload(); // nunca manter 2 modelos em memória
     final resp = await _request({
       'cmd': 'load',
       'path': modelPath,
+      'mmproj': mmprojPath,
       'config': config.toJson(),
     });
     if (resp['ok'] != true) {
@@ -1032,6 +1263,18 @@ class LlamaFfiEngine implements LlmEngine {
     }
     _loaded = true;
     _modelPath = modelPath;
+    _mmprojPath = mmprojPath;
+    _kind = kind;
+    _info = Lfm3ModelInfo(
+      modelId: modelId,
+      kind: kind,
+      nCtx: resp['n_ctx'] as int? ?? config.contextSize,
+      nEmbd: resp['n_embd'] as int? ?? 0,
+      nVocab: resp['n_vocab'] as int? ?? 0,
+      multimodal: mmprojPath != null,
+      mmap: resp['mmap'] as bool? ?? true,
+      mmprojPath: mmprojPath,
+    );
   }
 
   // --------------------------------------------------------- generate -----
@@ -1039,7 +1282,9 @@ class LlamaFfiEngine implements LlmEngine {
   Stream<GenEvent> generate({
     required List<ChatMessage> messages,
     required LlmConfig config,
+    List<LlmMediaInput> media = const [],
     int? maxTokensOverride,
+    String? systemPromptOverride,
   }) {
     final ctrl = StreamController<GenEvent>();
     () async {
@@ -1065,12 +1310,69 @@ class LlamaFfiEngine implements LlmEngine {
         await ctrl.close();
         return;
       }
+      // ---- preparação de mídia (isolate principal, dart:ui) --------------
+      final preparedMedia = <Map<String, Object?>>[];
+      var markerCount = 0;
+      try {
+        const preprocessor = MediaPreprocessor();
+        for (final m in media) {
+          final p = await preprocessor.prepare(m);
+          preparedMedia.add(p.toMap());
+          switch (p.kind) {
+            case MediaKind.image:
+            case MediaKind.audio:
+              markerCount++;
+            case MediaKind.video:
+              markerCount += (p.video?.frames.length ?? 0) +
+                  (p.video?.soundtrack != null ? 1 : 0);
+          }
+        }
+      } catch (e) {
+        ctrl.add(GenEnd(
+          promptTokens: 0,
+          outputTokens: 0,
+          latencyMs: 0,
+          stopReason: 'error',
+          error: 'preparação de mídia: $e',
+        ));
+        await ctrl.close();
+        return;
+      }
 
-      // Render do chat template oficial do MiniCPM5 (ficheiro não alterado).
+      // Render do ChatML oficial do LFM3, com um marcador por bitmap.
       final String prompt;
       try {
-        prompt = mc.renderChat(messages,
-            tools: const [], enableThinking: config.enableThinking);
+        var patched = systemPromptOverride == null
+            ? messages
+            : [
+                ChatMessage('system', systemPromptOverride),
+                ...messages.where((m) => m.role != 'system'),
+              ];
+        if (markerCount > 0) {
+          final markers =
+              List<String>.filled(markerCount, lfm3.Lfm3Markup.mediaMarker)
+                  .join('\n');
+          final lastUser = patched.lastIndexWhere((m) => m.role == 'user');
+          if (lastUser >= 0) {
+            final u = patched[lastUser];
+            patched = [
+              ...patched.take(lastUser),
+              ChatMessage(u.role, '${u.content}\n\n$markers'),
+              ...patched.skip(lastUser + 1),
+            ];
+          } else {
+            patched = [...patched, ChatMessage('user', markers)];
+          }
+        }
+        prompt = lfm3.renderChat(
+          patched,
+          enableThinking: config.enableThinking,
+          preserveThinking: config.preserveThinking,
+          jsonResponse: config.responseFormat != ResponseFormat.text,
+          responseJsonSchema: config.responseJsonSchema,
+          audioOutput: config.profile == Lfm3Profile.audioTts,
+          interleavedAudio: config.profile == Lfm3Profile.audioTts,
+        );
       } catch (e) {
         ctrl.add(GenEnd(
           promptTokens: 0,
@@ -1102,6 +1404,7 @@ class LlamaFfiEngine implements LlmEngine {
         'prompt': prompt,
         'config': config.toJson(),
         'maxTokens': maxTokensOverride ?? config.maxTokens,
+        'media': preparedMedia,
       });
     }();
     return ctrl.stream;
@@ -1138,6 +1441,8 @@ class LlamaFfiEngine implements LlmEngine {
     }
     _loaded = false;
     _modelPath = '';
+    _mmprojPath = null;
+    _info = null;
     final commands = _commands;
     if (commands != null) {
       // Liberta os handles nativos (contexto + modelo) no isolate de trabalho.
@@ -1160,5 +1465,8 @@ class LlamaFfiEngine implements LlmEngine {
   }
 }
 
-/// Alias de compatibilidade (a UI já referencia `LlmEngineLlama`).
-typedef LlmEngineLlama = LlamaFfiEngine;
+/// Alias de compatibilidade com o nome antigo.
+typedef LlmEngineLlama = LlamaLfm3FfiEngine;
+
+/// Alias curto para a UI.
+typedef Lfm3Engine = LlamaLfm3FfiEngine;

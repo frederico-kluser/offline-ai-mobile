@@ -1,8 +1,12 @@
-/// Contrato de ferramentas para o exemplo de tool calling do MiniCPM5-2B.
+/// Contrato de ferramentas do agente LFM3.
 ///
 /// Determinismo por construção: argumentos são validados contra [ToolSpec]
-/// ANTES de executar (o modelo é tratado como "sugestão", nunca como autoridade
-/// — doc §17) e todo o ciclo é limitado pelo `LoopGuard`.
+/// ANTES de executar (o modelo é tratado como "sugestão", nunca como
+/// autoridade) e todo o ciclo é limitado pelo `LoopGuard`.
+///
+/// [ToolSpec.deferLoading] ativa o Deferred Tool Loading do LFM3: apenas
+/// `search_tools` entra no system prompt; as restantes ferramentas são
+/// descobertas em runtime e injetadas em `<additional_tools>`.
 library;
 
 import 'dart:convert';
@@ -35,6 +39,13 @@ class ParamSpec {
         'required': required,
         if (enumValues != null) 'enum': enumValues,
       };
+
+  /// Fragmento de JSON Schema usado no catálogo de ferramentas do LFM3.
+  Map<String, dynamic> toJsonSchema() => {
+        'type': type == 'enum' ? 'string' : type,
+        'description': description,
+        if (enumValues != null) 'enum': enumValues,
+      };
 }
 
 /// Ferramenta disponível ao agente.
@@ -43,10 +54,19 @@ class ToolSpec {
   final String description;
   final List<ParamSpec> params;
 
+  /// `true` = não entra no system prompt inicial; é descoberta por
+  /// `search_tools` e devolvida em `<additional_tools>`.
+  final bool deferLoading;
+
+  /// Categoria usada pelo roteador d1 (`domain_route`) e pela pesquisa local.
+  final String category;
+
   const ToolSpec({
     required this.name,
     required this.description,
     required this.params,
+    this.deferLoading = false,
+    this.category = 'general',
   });
 
   /// Assinatura canónica determinística (usada na deteção de ciclos).
@@ -56,10 +76,39 @@ class ToolSpec {
         'name': name,
         'description': description,
         'params': params.map((p) => p.toJson()).toList(),
+        'defer_loading': deferLoading,
+        'category': category,
+      };
+
+  /// Esquema no formato OpenAI/JSON Schema (o superset qwen3_coder do LFM3
+  /// aceita este objeto dentro de `<tools>`).
+  Map<String, dynamic> toOpenAiSchema() => {
+        'type': 'function',
+        'function': {
+          'name': name,
+          'description': description,
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              for (final p in params) p.name: p.toJsonSchema(),
+            },
+            'required': [
+              for (final p in params)
+                if (p.required) p.name,
+            ],
+          },
+        },
+      };
+
+  /// Referência compacta (usada quando o modelo devolve `tool_reference`).
+  Map<String, dynamic> toReference() => {
+        'type': 'tool_reference',
+        'name': name,
+        'description': description,
       };
 }
 
-/// Um tool call emitido pelo modelo (pós-parse do formato XML do MiniCPM5).
+/// Um tool call emitido pelo modelo (pós-parse do XML do LFM3).
 class ToolCall {
   final String name;
   final Map<String, dynamic> args;

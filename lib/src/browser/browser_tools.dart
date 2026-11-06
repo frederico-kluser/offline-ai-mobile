@@ -1,5 +1,5 @@
-/// Ferramentas `browser_*` para o [ToolLoop] do MiniCPM5-2B — o caminho
-/// "System Two" do controlo do browser (o Laya é o "System One").
+/// Ferramentas `browser_*` para o [ToolLoop] do LFM3 — o caminho
+/// "System Two" do controlo do browser (o d1 é o "System One").
 ///
 /// Regras do projeto (tools.dart): resultados NUNCA vazios nem ambíguos —
 /// prefixo `ok:`/`no_results:`/`error:` + motivo — e truncagem com marcador.

@@ -1,0 +1,489 @@
+/// Motor do decisor d1 sobre ONNX Runtime (`onnxruntime_v2`).
+///
+/// Arquitetura:
+///  - a sessão ONNX (decoder + encoders opcionais) vive num isolate próprio;
+///  - `decide()` constrói uma linha sem padding, com até 16 perguntas,
+///    `question_ids`/`slot_positions` e corre UM forward pass sem KV cache;
+///  - os logits/hidden states voltam ao isolate principal e são descodificados
+///    por [D1OutputDecoder].
+///
+/// O bundle ONNX oficial (`d1-2B-ONNX` / `d1-Omni-2B-ONNX`) é obrigatório
+/// para as primitivas tipadas; a via GGUF só cobre noul/choice/score.
+library;
+
+import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:math' as math;
+
+import 'package:onnxruntime_v2/onnxruntime_v2.dart';
+
+import '../domain/d1_decision_types.dart';
+import '../domain/llm_config.dart';
+import 'd1_engine.dart';
+import 'd1_output.dart';
+import 'd1_prompt.dart';
+import 'd1_tokenizer.dart';
+
+class D1OnnxEngine implements D1Engine {
+  Isolate? _isolate;
+  SendPort? _commands;
+  bool _ready = false;
+  String? _loadError;
+  String? _modelPath;
+  int _nextId = 0;
+  final Map<int, Completer<Object?>> _inflight = {};
+
+  @override
+  bool get isLoaded => _ready;
+
+  @override
+  String get modelId {
+    final p = _modelPath;
+    if (p == null) return 'd1-onnx';
+    final i = math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+    return i >= 0 ? p.substring(i + 1) : p;
+  }
+
+  @override
+  D1BackendKind get backend => D1BackendKind.onnx;
+
+  @override
+  D1Capabilities get capabilities => D1Capabilities.onnxFull;
+
+  @override
+  String? get loadError => _loadError;
+
+  @override
+  Future<void> load({
+    required D1ModelPaths paths,
+    required D1Config config,
+  }) async {
+    if (_isolate != null) await unload();
+    _ready = false;
+    _loadError = null;
+    _modelPath = paths.decoderPath;
+
+    final handshake = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _d1WorkerMain,
+      handshake.sendPort,
+      debugName: 'D1OnnxEngine',
+    );
+    _isolate = isolate;
+    final commands = await handshake.first as SendPort;
+    handshake.close();
+    _commands = commands;
+
+    final reply = ReceivePort();
+    final ack = await _request(
+      reply,
+      commands,
+      _LoadCmd(paths: paths, config: config, reply: reply.sendPort),
+    );
+    reply.close();
+    if (ack is _Ok) {
+      _ready = true;
+    } else {
+      _loadError = (ack as _Err).message;
+      _ready = false;
+    }
+  }
+
+  @override
+  Future<D1Response> decide(D1Request request) async {
+    final commands = _commands;
+    if (!_ready || commands == null) {
+      throw D1Unavailable(
+        'D1OnnxEngine: motor não carregado. ${_loadError ?? 'Chame load() primeiro.'}',
+      );
+    }
+    if (request.media.isNotEmpty) {
+      throw const D1Unavailable(
+        'o caminho ONNX de mídia (imagem/vídeo/áudio) exige o processor '
+        'oficial e os tensores image_features/video_features/audio_features; '
+        'esta build só executa o decisor de texto. Usa o runner oficial '
+        'enquanto o processor não estiver ligado.',
+      );
+    }
+    final reply = ReceivePort();
+    final result = await _request(
+      reply,
+      commands,
+      _DecideCmd(request: request, reply: reply.sendPort),
+    );
+    reply.close();
+    if (result is _Err) {
+      throw StateError('D1OnnxEngine: ${result.message}');
+    }
+    return (result as _Ok).payload as D1Response;
+  }
+
+  @override
+  Future<void> unload() async {
+    final commands = _commands;
+    final isolate = _isolate;
+    _commands = null;
+    _isolate = null;
+    _ready = false;
+    _modelPath = null;
+    if (commands != null && isolate != null) {
+      try {
+        final reply = ReceivePort();
+        await _request(reply, commands, _UnloadCmd(reply: reply.sendPort))
+            .timeout(const Duration(seconds: 15));
+        reply.close();
+      } catch (_) {
+        // worker já morto
+      }
+    }
+    for (final c in _inflight.values) {
+      if (!c.isCompleted) c.complete(const _Err('D1OnnxEngine: unload()'));
+    }
+    _inflight.clear();
+    isolate?.kill(priority: Isolate.immediate);
+    _loadError = null;
+  }
+
+  Future<Object?> _request(ReceivePort port, SendPort to, _Cmd cmd) {
+    final id = _nextId++;
+    final completer = Completer<Object?>();
+    _inflight[id] = completer;
+    port.listen((message) {
+      final entry = (message as Map)['id'] as int;
+      final c = _inflight.remove(entry);
+      if (c != null && !c.isCompleted) c.complete(message['result']);
+    });
+    to.send(_Envelope(id, cmd));
+    return completer.future;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Protocolo do worker.
+// ---------------------------------------------------------------------------
+
+class _Envelope {
+  final int id;
+  final _Cmd cmd;
+  const _Envelope(this.id, this.cmd);
+}
+
+sealed class _Cmd {
+  const _Cmd();
+  SendPort get reply;
+}
+
+class _LoadCmd extends _Cmd {
+  final D1ModelPaths paths;
+  final D1Config config;
+  @override
+  final SendPort reply;
+  const _LoadCmd({
+    required this.paths,
+    required this.config,
+    required this.reply,
+  });
+}
+
+class _DecideCmd extends _Cmd {
+  final D1Request request;
+  @override
+  final SendPort reply;
+  const _DecideCmd({required this.request, required this.reply});
+}
+
+class _UnloadCmd extends _Cmd {
+  @override
+  final SendPort reply;
+  const _UnloadCmd({required this.reply});
+}
+
+class _Ok {
+  final Object? payload;
+  const _Ok([this.payload]);
+}
+
+class _Err {
+  final String message;
+  const _Err(this.message);
+}
+
+// ---------------------------------------------------------------------------
+// Worker.
+// ---------------------------------------------------------------------------
+
+Future<void> _d1WorkerMain(SendPort handshake) async {
+  final commands = ReceivePort();
+  handshake.send(commands.sendPort);
+
+  D1Tokenizer? tokenizer;
+  OrtSession? decoder;
+  OrtSession? vision;
+  OrtSession? audio;
+  D1Config config = const D1Config();
+  var loadError = 'motor não carregado';
+  const outputDecoder = D1OutputDecoder();
+
+  await for (final raw in commands) {
+    final envelope = raw as _Envelope;
+    final id = envelope.id;
+    final cmd = envelope.cmd;
+    Object result;
+    try {
+      if (cmd is _LoadCmd) {
+        config = cmd.config;
+        result = _workerLoad(cmd, (t, d, v, a) {
+          tokenizer = t;
+          decoder = d;
+          vision = v;
+          audio = a;
+        });
+        loadError = result is _Err ? result.message : '';
+      } else if (cmd is _DecideCmd) {
+        final tok = tokenizer;
+        final dec = decoder;
+        if (tok == null || dec == null) {
+          result = _Err('modelo d1 não carregou: $loadError');
+        } else {
+          result = _workerDecide(
+            request: cmd.request,
+            tokenizer: tok,
+            decoder: dec,
+            config: config,
+            outputDecoder: outputDecoder,
+          );
+        }
+      } else if (cmd is _UnloadCmd) {
+        await decoder?.release();
+        await vision?.release();
+        await audio?.release();
+        _reply(id, cmd.reply, const _Ok());
+        commands.close();
+        Isolate.exit();
+      } else {
+        result = _Err('comando desconhecido: $cmd');
+      }
+    } catch (e, st) {
+      result = _Err('$e\n${st.toString().split('\n').take(4).join('\n')}');
+    }
+    _reply(id, cmd.reply, result);
+  }
+}
+
+void _reply(int id, SendPort reply, Object? result) {
+  reply.send({'id': id, 'result': result});
+}
+
+Object _workerLoad(
+  _LoadCmd cmd,
+  void Function(D1Tokenizer, OrtSession, OrtSession?, OrtSession?) onReady,
+) {
+  try {
+    OrtEnv.instance.init(level: OrtLoggingLevel.warning, logId: 'd1');
+  } catch (e) {
+    return _Err('ONNX Runtime (OrtEnv.init) falhou: $e');
+  }
+  try {
+    final p = cmd.paths;
+    if (p.decoderPath == null || !File(p.decoderPath!).existsSync()) {
+      return _Err('decoder ONNX não encontrado: ${p.decoderPath}');
+    }
+    if (!File(p.tokenizerPath).existsSync()) {
+      return _Err('tokenizer não encontrado: ${p.tokenizerPath}');
+    }
+    final tokenizer = D1Tokenizer.fromFile(p.tokenizerPath);
+    final decoder = _session(p.decoderPath!, cmd.config);
+    final vision = p.visionEncoderPath != null &&
+            File(p.visionEncoderPath!).existsSync()
+        ? _session(p.visionEncoderPath!, cmd.config)
+        : null;
+    final audio = p.audioEncoderPath != null &&
+            File(p.audioEncoderPath!).existsSync()
+        ? _session(p.audioEncoderPath!, cmd.config)
+        : null;
+    onReady(tokenizer, decoder, vision, audio);
+    return const _Ok();
+  } catch (e) {
+    return _Err('modelo d1 ONNX não carregou: $e');
+  }
+}
+
+OrtSession _session(String path, D1Config config) {
+  final options = OrtSessionOptions()
+    ..setIntraOpNumThreads(config.threads)
+    ..setInterOpNumThreads(1)
+    ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
+  try {
+    switch (config.executionProvider) {
+      case 'xnnpack':
+        options.appendXnnpackProvider();
+      case 'coreml':
+        options.appendCoreMLProvider(CoreMLFlags.useNone);
+      default:
+        options.appendCPUProvider(CPUFlags.useArena);
+    }
+  } catch (_) {
+    options.appendCPUProvider(CPUFlags.useArena);
+  }
+  final session = OrtSession.fromFile(File(path), options);
+  options.release();
+  return session;
+}
+
+Object _workerDecide({
+  required D1Request request,
+  required D1Tokenizer tokenizer,
+  required OrtSession decoder,
+  required D1Config config,
+  required D1OutputDecoder outputDecoder,
+}) {
+  final started = DateTime.now();
+  final questions = request.questions.take(config.maxQuestions).toList();
+  if (questions.isEmpty) {
+    return _Err('pedido d1 sem perguntas');
+  }
+  final answers = <String, D1Answer>{};
+  var inputTokens = 0;
+  var slotCount = 0;
+
+  for (var i = 0; i < questions.length; i++) {
+    final prompt = D1PromptBuilder(
+      tokenizer: tokenizer,
+      maxStateTokens: config.maxStateTokens,
+      maxQuestions: config.maxQuestions,
+    ).build(request, questionIndex: i);
+    if (prompt.inputIds.length > config.maxStateTokens) {
+      return _Err(
+        'prompt d1 (pergunta ${i + 1}) tem ${prompt.inputIds.length} tokens; '
+        'limite ${config.maxStateTokens} (aumenta max_state_tokens)',
+      );
+    }
+    final one = _runOne(
+      question: questions[i],
+      prompt: prompt,
+      decoder: decoder,
+      tokenizer: tokenizer,
+      outputDecoder: outputDecoder,
+    );
+    if (one is _Err) return one;
+    answers[questions[i].id] = (one as _Ok).payload as D1Answer;
+    inputTokens += prompt.inputIds.length;
+    slotCount += prompt.slots.length;
+  }
+
+  return _Ok(D1Response(
+    answers: answers,
+    inputTokens: inputTokens,
+    latencyMs: DateTime.now().difference(started).inMilliseconds,
+    slotCount: slotCount,
+    engine: 'd1-onnx',
+  ));
+}
+
+Object _runOne({
+  required D1Question question,
+  required D1Prompt prompt,
+  required OrtSession decoder,
+  required D1Tokenizer tokenizer,
+  required D1OutputDecoder outputDecoder,
+}) {
+  final n = prompt.inputIds.length;
+  final inputs = <String, OrtValue>{};
+  final available = decoder.inputNames.toSet();
+
+  void addInt(String name, List<int> values, List<int> shape) {
+    if (!available.contains(name)) return;
+    inputs[name] = OrtValueTensor.createTensorWithDataList(values, shape);
+  }
+
+  addInt('input_ids', prompt.inputIds, [1, n]);
+  addInt('attention_mask', List<int>.filled(n, 1), [1, n]);
+  addInt('position_ids', List<int>.generate(n, (i) => i), [1, n]);
+  addInt('question_ids', prompt.questionIds, [1, n]);
+  addInt('slot_positions', prompt.slotPositions, [prompt.slotPositions.length]);
+
+  if (!available.contains('input_ids') ||
+      !available.contains('attention_mask') ||
+      !available.contains('slot_positions')) {
+    for (final v in inputs.values) {
+      v.release();
+    }
+    return _Err('decoder d1 não expõe os inputs obrigatórios: '
+        '${decoder.inputNames.join(', ')}');
+  }
+
+  final outputNames = <String>[
+    if (decoder.outputNames.contains('logits'))
+      'logits'
+    else
+      decoder.outputNames.first,
+    if (decoder.outputNames.contains('hidden_states'))
+      'hidden_states'
+    else if (decoder.outputNames.length > 1)
+      decoder.outputNames[1],
+  ];
+
+  final runOptions = OrtRunOptions();
+  List<OrtValue?>? outputs;
+  try {
+    outputs = decoder.run(runOptions, inputs, outputNames);
+    final logits = _flattenDoubles((outputs[0] as OrtValueTensor).value);
+    final logitsShape = _shapeOf((outputs[0] as OrtValueTensor).value);
+    List<double>? hidden;
+    List<int>? hiddenShape;
+    if (outputs.length > 1 && outputs[1] is OrtValueTensor) {
+      hidden = _flattenDoubles((outputs[1] as OrtValueTensor).value);
+      hiddenShape = _shapeOf((outputs[1] as OrtValueTensor).value);
+    }
+    return _Ok(outputDecoder.decodeOne(
+      question: question,
+      prompt: prompt,
+      logits: logits,
+      logitsShape: logitsShape,
+      tokenizer: tokenizer,
+      hiddenStates: hidden,
+      hiddenShape: hiddenShape,
+      latencyMs: 0,
+    ));
+  } on D1UnsupportedPrimitive catch (e) {
+    return _Err(e.toString());
+  } catch (e) {
+    return _Err('execução ONNX do d1 falhou: $e');
+  } finally {
+    runOptions.release();
+    for (final o in outputs ?? const <OrtValue?>[]) {
+      o?.release();
+    }
+    for (final v in inputs.values) {
+      v.release();
+    }
+  }
+}
+
+List<double> _flattenDoubles(Object? value) {
+  final out = <double>[];
+  void walk(Object? v) {
+    if (v is num) {
+      out.add(v.toDouble());
+    } else if (v is List) {
+      for (final e in v) {
+        walk(e);
+      }
+    }
+  }
+
+  walk(value);
+  return out;
+}
+
+List<int> _shapeOf(Object? value) {
+  final out = <int>[];
+  var v = value;
+  while (v is List) {
+    out.add(v.length);
+    if (v.isEmpty) break;
+    v = v.first;
+  }
+  return out;
+}

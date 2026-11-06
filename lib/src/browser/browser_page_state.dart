@@ -1,5 +1,5 @@
 /// Estado observável da página do browser embutido — o "mapa" que alimenta o
-/// piloto (Laya), o agente (MiniCPM5-2B) e o painel de elementos das teclas
+/// piloto (d1), o agente (LFM3) e o painel de elementos das teclas
 /// flutuantes.
 ///
 /// Princípio (dossiês de agentes web): representação COMPACTA e com refs
@@ -146,7 +146,7 @@ class PageSnapshot {
   static PageSnapshot decode(String source) =>
       PageSnapshot.fromJson(Map<String, dynamic>.from(jsonDecode(source) as Map));
 
-  /// Resumo prosa compacto para o `state` do Laya / contexto do LLM.
+  /// Resumo prosa compacto para o `state` do d1 / contexto do LFM3.
   String toCompactText({int maxElements = 20, int maxTextChars = 600}) {
     final buf = StringBuffer()
       ..writeln('URL: $url')

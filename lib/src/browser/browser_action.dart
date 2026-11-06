@@ -4,8 +4,8 @@
 ///
 /// Três produtores partilham o MESMO vocabulário e o mesmo barramento:
 ///   1. o humano — pelas "teclas flutuantes" da UI;
-///   2. o Laya — decisões tipadas (`choice`) sobre os candidatos do passo;
-///   3. o MiniCPM5-2B — tool calling (`browser_*`) no [ToolLoop].
+///   2. o d1 — decisões tipadas (`choice`) sobre os candidatos do passo;
+///   3. o LFM3 — tool calling (`browser_*`) no [ToolLoop].
 ///
 /// Determinismo por construção: cada ação serializa para JSON com chaves
 /// estáveis ([canonicalKey] para deteção de ciclos) e é validada pelo
@@ -237,7 +237,7 @@ class BrowserExtract extends BrowserAction {
   Map<String, dynamic> toJson() => {'kind': kind};
 }
 
-/// Escape hatch: JS arbitrário. Só o humano dispara (o piloto/Laya e o LLM
+/// Escape hatch: JS arbitrário. Só o humano dispara (o piloto/d1 e o LFM3
 /// NÃO recebem esta ação nos seus vocabulários).
 class BrowserEval extends BrowserAction {
   final String code;

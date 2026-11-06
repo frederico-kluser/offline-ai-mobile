@@ -1,7 +1,7 @@
 /// Contrato do controlador do browser embutido.
 ///
 /// Um único barramento de ações ([BrowserAction]) com três produtores (humano
-/// pelas teclas flutuantes, Laya, MiniCPM5-2B). A implementação concreta
+/// pelas teclas flutuantes, d1, LFM3). A implementação concreta
 /// ([WebViewBrowserController]) injeta a ponte JS e executa cada ação dentro
 /// da WebView; em testes usa-se um fake determinístico.
 library;

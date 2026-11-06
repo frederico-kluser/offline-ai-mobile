@@ -1,4 +1,4 @@
-/// Bottom sheets de configuração dos motores (LLM completo / Laya).
+/// Bottom sheets de configuração dos motores LFM3 e d1.
 library;
 
 import 'package:flutter/material.dart';
@@ -6,8 +6,7 @@ import 'package:flutter/material.dart';
 import '../services/store.dart';
 import 'llm_config_form.dart';
 
-/// Abre a configuração completa do LLM (todos os campos + validação).
-/// Devolve `true` se o utilizador tocou em "Guardar".
+/// Configuração completa do motor gerador LFM3.
 Future<bool> showLlmConfigSheet(BuildContext context, AppStore store) async {
   var config = store.llmConfig;
   final saved = await showModalBottomSheet<bool>(
@@ -18,8 +17,8 @@ Future<bool> showLlmConfigSheet(BuildContext context, AppStore store) async {
         builder: (ctx, setSheet) {
           final problems = config.validate();
           return Padding(
-            padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
             child: SafeArea(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
@@ -27,7 +26,7 @@ Future<bool> showLlmConfigSheet(BuildContext context, AppStore store) async {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Configuração do LLM (MiniCPM5-2B)',
+                    Text('Configuração do motor LFM3',
                         style: Theme.of(ctx).textTheme.titleMedium),
                     const SizedBox(height: 8),
                     LlmConfigEditor(
@@ -66,9 +65,9 @@ Future<bool> showLlmConfigSheet(BuildContext context, AppStore store) async {
   return saved == true;
 }
 
-/// Abre a configuração do Laya (threads, execution provider, limites de state).
-Future<bool> showLayaConfigSheet(BuildContext context, AppStore store) async {
-  var config = store.layaConfig;
+/// Configuração do decisor d1 (ONNX Runtime).
+Future<bool> showD1ConfigSheet(BuildContext context, AppStore store) async {
+  var config = store.d1Config;
   final saved = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -76,8 +75,8 @@ Future<bool> showLayaConfigSheet(BuildContext context, AppStore store) async {
       return StatefulBuilder(
         builder: (ctx, setSheet) {
           return Padding(
-            padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
             child: SafeArea(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
@@ -85,7 +84,7 @@ Future<bool> showLayaConfigSheet(BuildContext context, AppStore store) async {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Configuração do Laya (ONNX)',
+                    Text('Configuração do d1 (ONNX)',
                         style: Theme.of(ctx).textTheme.titleMedium),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
@@ -100,6 +99,8 @@ Future<bool> showLayaConfigSheet(BuildContext context, AppStore store) async {
                             value: 'cpu', child: Text('cpu (determinismo)')),
                         DropdownMenuItem(
                             value: 'xnnpack', child: Text('xnnpack (rápido)')),
+                        DropdownMenuItem(
+                            value: 'coreml', child: Text('coreml (ANE/GPU iOS)')),
                       ],
                       onChanged: (v) => setSheet(() => config = config.copyWith(
                           executionProvider: v ?? 'xnnpack')),
@@ -108,7 +109,7 @@ Future<bool> showLayaConfigSheet(BuildContext context, AppStore store) async {
                     _SheetIntField(
                       label: 'threads',
                       value: config.threads,
-                      hint: 'CPU threads do ONNX Runtime',
+                      hint: 'threads nativas do ONNX Runtime',
                       onChanged: (v) =>
                           setSheet(() => config = config.copyWith(threads: v)),
                     ),
@@ -116,18 +117,46 @@ Future<bool> showLayaConfigSheet(BuildContext context, AppStore store) async {
                     _SheetIntField(
                       label: 'maxStateTokens',
                       value: config.maxStateTokens,
-                      hint: '1024 no typed-decisions; estados ≤512 tok',
+                      hint: 'state + perguntas numa linha',
                       onChanged: (v) => setSheet(
                           () => config = config.copyWith(maxStateTokens: v)),
                     ),
                     const SizedBox(height: 12),
                     _SheetIntField(
-                      label: 'maxStateChars',
-                      value: config.maxStateChars,
-                      hint: 'truncagem do state em caracteres',
+                      label: 'maxQuestions',
+                      value: config.maxQuestions,
+                      hint: '1..16 (contrato d1)',
                       onChanged: (v) => setSheet(
-                          () => config = config.copyWith(maxStateChars: v)),
+                          () => config = config.copyWith(maxQuestions: v)),
                     ),
+                    const SizedBox(height: 12),
+                    _SheetIntField(
+                      label: 'imageMaxTokens',
+                      value: config.imageMaxTokens,
+                      hint: 'limite visual por imagem',
+                      onChanged: (v) => setSheet(
+                          () => config = config.copyWith(imageMaxTokens: v)),
+                    ),
+                    SwitchListTile.adaptive(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('usar fp16/GPU'),
+                      subtitle: const Text('decoder_q4f16 + encoders fp16'),
+                      value: config.useFp16,
+                      onChanged: (v) =>
+                          setSheet(() => config = config.copyWith(useFp16: v)),
+                    ),
+                    SwitchListTile.adaptive(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('manter sessões quentes'),
+                      subtitle: const Text('menos latência, mais RAM'),
+                      value: config.keepWarm,
+                      onChanged: (v) =>
+                          setSheet(() => config = config.copyWith(keepWarm: v)),
+                    ),
+                    if (config.validate().isNotEmpty)
+                      ValidationBox(config.validate()),
                     const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
@@ -153,7 +182,7 @@ Future<bool> showLayaConfigSheet(BuildContext context, AppStore store) async {
     },
   );
   if (saved == true) {
-    await store.saveLayaConfig(config);
+    await store.saveD1Config(config);
   }
   return saved == true;
 }

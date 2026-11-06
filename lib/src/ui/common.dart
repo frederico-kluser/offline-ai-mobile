@@ -7,7 +7,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../domain/laya_types.dart';
+import '../domain/d1_decision_types.dart';
 
 /// Mensagem rápida de erro/estado — TODOS os erros da app passam por aqui.
 void showSnack(BuildContext context, String message, {bool error = false}) {
@@ -166,14 +166,59 @@ class ProbBar extends StatelessWidget {
   }
 }
 
-/// Valor tipado principal de uma resposta do Laya.
-String describeAnswer(TypedAnswer a) => switch (a) {
-      NoulAnswer(:final pTrue) =>
-        'noul · p(true)=${pTrue.toStringAsFixed(3)}',
-      ChoiceAnswer(:final choice) => 'choice · escolha: $choice',
-      ScoreAnswer(:final score) =>
-        'score · índice esperado: ${score.toStringAsFixed(2)}',
+/// Valor tipado principal de uma resposta do d1.
+String describeAnswer(D1Answer a) => switch (a) {
+      D1NoulAnswer(:final pTrue) =>
+        'noul · P(true) = ${pTrue.toStringAsFixed(3)}',
+      D1ChoiceAnswer(:final choice) => 'choice · $choice',
+      D1MultiChoiceAnswer(:final selected) =>
+        'multi-choice · ${selected.isEmpty ? 'nenhuma' : selected.join(', ')}',
+      D1ScoreAnswer(:final score) => 'score · ${score.toStringAsFixed(2)}',
+      D1TextAnswer(:final text, :final found) =>
+        found ? 'text · ${text ?? ''}' : 'text · não encontrado',
+      D1NumberAnswer(:final value, :final unit, :final found) => found
+          ? 'number · $value${unit == null ? '' : ' $unit'}'
+          : 'number · não encontrado',
+      D1DateAnswer(:final iso, :final found) =>
+        found ? 'date · $iso' : 'date · não encontrada',
+      D1RangeAnswer(:final median, :final p10, :final p90, :final found) =>
+        found
+            ? 'range · $median [${p10?.toStringAsFixed(1)}, '
+                '${p90?.toStringAsFixed(1)}]'
+            : 'range · não estimado',
+      D1BoxAnswer(:final box) =>
+        box?.isPresent == true ? 'box · (${box!.left.toStringAsFixed(2)}, '
+            '${box.top.toStringAsFixed(2)})' : 'box · não encontrada',
+      D1BoxesAnswer(:final boxes) => 'boxes · ${boxes.length} caixa(s)',
     };
+
+/// Chip de capacidade (visão, áudio, thinking, tools).
+class CapabilityChip extends StatelessWidget {
+  const CapabilityChip(this.label, {super.key, this.active = true});
+
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: active
+            ? scheme.secondaryContainer
+            : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: active ? scheme.onSecondaryContainer : scheme.outline,
+            ),
+      ),
+    );
+  }
+}
 
 /// Diálogo de JSON com botão de cópia (usado por "Ver JSON" / "Copiar JSON").
 void showJsonDialog(BuildContext context, String title, Object? json) {

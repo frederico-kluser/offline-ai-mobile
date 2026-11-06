@@ -11,7 +11,7 @@
 ///  - alvos de toque ≥48dp, dock colapsável arrastável só pelo handle.
 ///
 /// Três produtores de ações sobre o MESMO barramento ([BrowserController]):
-/// humano (teclas), Laya (piloto tipado) e MiniCPM5-2B (agente com tools).
+/// humano (teclas), d1 (piloto tipado) e LFM3 (agente com tools).
 library;
 
 import 'dart:async';
@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../agent/tool_loop.dart';
+import '../agent/tools.dart';
 import '../browser/browser_action.dart';
 import '../browser/browser_controller.dart';
 import '../browser/browser_page_state.dart';
@@ -136,7 +137,7 @@ class _BrowserPageState extends State<BrowserPage> {
     });
   }
 
-  // ------------------------------------------------------------- piloto Laya
+  // --------------------------------------------------------------- piloto d1
 
   Future<void> _pilotStep() async {
     if (_goal.trim().isEmpty) {
@@ -145,18 +146,16 @@ class _BrowserPageState extends State<BrowserPage> {
       return;
     }
     final services = AppServices.instance;
-    final modelPath = services.layaModelPath;
-    final tokenizerPath = services.layaTokenizerPath;
-    if (modelPath == null || tokenizerPath == null) {
-      _setStatus('kit Laya não instalado — descarrega na aba Modelos');
+    final bundle = services.activeD1Bundle;
+    if (bundle == null) {
+      _setStatus('decisor d1 não instalado — descarrega na aba Modelos');
       return;
     }
     setState(() => _busy = true);
     try {
-      final engine = await services.ensureLaya(
-        modelPath: modelPath,
-        tokenizerPath: tokenizerPath,
-        config: const LayaConfig(),
+      final engine = await services.ensureD1(
+        bundle: bundle,
+        config: const D1Config(),
       );
       final pilot = BrowserPilot(engine: engine);
       final page = _snapshot ?? await _browser.snapshot();
@@ -186,7 +185,7 @@ class _BrowserPageState extends State<BrowserPage> {
     }
   }
 
-  // ----------------------------------------------------------- agente MiniCPM
+  // ------------------------------------------------------------ agente LFM3
 
   Future<void> _runAgent({String suggestion = ''}) async {
     if (_goal.trim().isEmpty) {
@@ -195,18 +194,31 @@ class _BrowserPageState extends State<BrowserPage> {
       return;
     }
     final services = AppServices.instance;
-    final modelPath = services.llmModelPath;
-    if (modelPath == null) {
-      _setStatus('modelo GGUF não instalado — descarrega na aba Modelos');
+    final bundle = services.generatorFor(
+      hasImage: false,
+      hasVideo: false,
+      hasAudio: false,
+    );
+    if (bundle == null) {
+      _setStatus('modelo LFM3 não instalado — descarrega na aba Modelos');
       return;
     }
     setState(() => _busy = true);
     try {
       final config = widget.store.llmConfig;
       final engine =
-          await services.ensureLlm(modelPath: modelPath, config: config);
-      final tools = browserTools(_browser, typeText: () => _lastTypeText);
-      final loop = services.makeToolLoop(llm: engine, tools: tools);
+          await services.ensureLlm(bundle: bundle, config: config);
+      final tools = [
+        ...browserTools(_browser, typeText: () => _lastTypeText),
+        LocalTool(
+          spec: finalAnswerSpec,
+          handler: (args) async => 'ok: ${args['answer'] ?? ''}',
+        ),
+      ];
+      final loop = services.makeToolLoop(
+        llm: engine,
+        catalog: ToolCatalog.allActive(tools),
+      );
       if (loop == null) {
         _setStatus('ToolLoop indisponível nesta build');
         return;
@@ -511,8 +523,8 @@ class _BrowserPageState extends State<BrowserPage> {
                       () => _dispatch(const BrowserScroll(0, 0.6))),
                   _key(Icons.keyboard_arrow_up, 'Rolar ↑',
                       () => _dispatch(const BrowserScroll(0, -0.6))),
-                  _key(Icons.route_outlined, 'Piloto (Laya)', _pilotStep),
-                  _key(Icons.smart_toy_outlined, 'Agente (LLM)',
+                  _key(Icons.route_outlined, 'Piloto (d1)', _pilotStep),
+                  _key(Icons.smart_toy_outlined, 'Agente (LFM3)',
                       () => _runAgent()),
                   _key(Icons.flag_outlined, 'Objetivo', () => setState(() {
                         _mode = _InputMode.goal;

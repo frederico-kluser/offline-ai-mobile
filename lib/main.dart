@@ -1,5 +1,5 @@
-/// Ponto de entrada: app offline de teste de prompts com Laya (decisor
-/// tipado) e MiniCPM5-2B (LLM local).
+/// Ponto de entrada: laboratório offline da suíte Liquid AI LFM3 (texto,
+/// visão, áudio e omni) e do decisor tipado d1.
 library;
 
 import 'package:flutter/material.dart';

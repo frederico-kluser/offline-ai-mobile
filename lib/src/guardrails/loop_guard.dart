@@ -7,8 +7,11 @@
 ///     a mesma chamada repetida mais de [maxIdenticalCalls] vezes corta o loop;
 ///  4. deteção de repetição de TEXTOS (n-grama) na geração — degeneração
 ///     clássica de LLMs pequenos (ver dossiê Q2);
-///  5. orçamento de tokens ([tokenBudget]) e timeout por passo ([stepTimeout]);
-///  6. resposta FINAL FORÇADA quando qualquer limite é atingido.
+///  5. orçamento de tokens ([tokenBudget]), teto de raciocínio
+///     ([maxThinkingTokens]) e timeout por passo ([stepTimeout]);
+///  6. resposta FINAL FORÇADA quando qualquer limite é atingido;
+///  7. regra de Deferred Tool Search: `search_tools(q) → tool_X` não é
+///     ping-pong, mas a mesma query canónica duas vezes seguidas corta.
 ///
 /// Nenhuma destas camadas depende do modelo cooperar: o corte é sempre do lado
 /// do runtime ("mais determinismo que liberdade").
@@ -24,6 +27,7 @@ enum StopReason {
   cycleDetected,
   repetitionDetected,
   tokenBudgetExhausted,
+  thinkingBudgetExhausted,
   stepTimeout,
   cancelled,
   engineError,
@@ -43,6 +47,8 @@ extension StopReasonWire on StopReason {
           'cortado: repetição degenerada de n-gramas na geração',
         StopReason.tokenBudgetExhausted =>
           'cortado: orçamento de tokens esgotado',
+        StopReason.thinkingBudgetExhausted =>
+          'cortado: teto de raciocínio <think> esgotado',
         StopReason.stepTimeout => 'cortado: timeout por passo',
         StopReason.cancelled => 'cancelado pelo utilizador',
         StopReason.engineError => 'parado por erro do motor',
@@ -69,6 +75,10 @@ class LoopState {
   int steps = 0;
   int toolCalls = 0;
   int tokensUsed = 0;
+  int thinkingTokens = 0;
+  int thinkingStepTokens = 0;
+  int searchCalls = 0;
+  String? lastSearchKey;
 
   /// contagem por chave canónica de tool call
   final Map<String, int> callCounts = {};
@@ -98,6 +108,12 @@ class LoopGuardConfig {
   /// Orçamento total de tokens de geração do agente.
   final int tokenBudget;
 
+  /// Teto do bloco `<think>` por passo (LFM3-1.7B/VL-2B). 0 = sem teto.
+  final int maxThinkingTokens;
+
+  /// Máximo de chamadas a `search_tools` no total.
+  final int maxSearchCalls;
+
   /// Timeout por passo de geração.
   final Duration stepTimeout;
 
@@ -113,6 +129,8 @@ class LoopGuardConfig {
     this.maxToolCalls = 6,
     this.maxIdenticalCalls = 2,
     this.tokenBudget = 2048,
+    this.maxThinkingTokens = 1024,
+    this.maxSearchCalls = 6,
     this.stepTimeout = const Duration(seconds: 90),
     this.repetitionWindow = 512,
     this.repetitionLimit = 3,
@@ -123,6 +141,8 @@ class LoopGuardConfig {
         'max_tool_calls': maxToolCalls,
         'max_identical_calls': maxIdenticalCalls,
         'token_budget': tokenBudget,
+        'max_thinking_tokens': maxThinkingTokens,
+        'max_search_calls': maxSearchCalls,
         'step_timeout_ms': stepTimeout.inMilliseconds,
         'repetition_window': repetitionWindow,
         'repetition_limit': repetitionLimit,
@@ -143,6 +163,7 @@ class LoopGuard {
   bool beforeModelStep({required int tokensSoFar}) {
     if (state.finished) return false;
     state.steps++;
+    state.thinkingStepTokens = 0;
     if (state.steps > config.maxSteps) {
       return _stop(StopReason.maxSteps);
     }
@@ -152,11 +173,64 @@ class LoopGuard {
     return true;
   }
 
+  /// Regista tokens de raciocínio sem cortar (usado quando o ToolLoop
+  /// reinicia o passo com `enableThinking = false`).
+  void noteThinking(int n) {
+    state.thinkingTokens += n;
+    state.thinkingStepTokens += n;
+  }
+
+  /// Acumula tokens de raciocínio e aplica o teto `<think>` por passo.
+  bool addThinkingTokens(int n) {
+    if (state.finished) return false;
+    state.thinkingTokens += n;
+    state.thinkingStepTokens += n;
+    if (config.maxThinkingTokens > 0 &&
+        state.thinkingStepTokens >= config.maxThinkingTokens) {
+      state.log.add(LoopStep(
+          index: state.steps,
+          kind: 'guard',
+          summary: 'teto de raciocínio: ${state.thinkingStepTokens} tokens '
+              '(max ${config.maxThinkingTokens})',
+          at: DateTime.now()));
+      return _stop(StopReason.thinkingBudgetExhausted);
+    }
+    return true;
+  }
+
+  /// `search_tools(q) → tool_X` é permitido; a mesma query duas vezes
+  /// seguidas corta imediatamente.
+  static bool isSearchToolKey(String key) =>
+      key.startsWith('search_tools(') || key.startsWith('search_tools:');
+
   /// Antes de executar uma tool call; valida o ciclo ANTES de executar
   /// (nunca executamos uma chamada que sabemos estar em loop).
   bool beforeToolCall(ToolCallKey call) {
     if (state.finished) return false;
     final key = call.canonicalKey;
+    final isSearch = isSearchToolKey(key);
+    if (isSearch) {
+      state.searchCalls++;
+      if (state.searchCalls > config.maxSearchCalls) {
+        state.log.add(LoopStep(
+            index: state.steps,
+            kind: 'guard',
+            summary: 'limite de search_tools: ${state.searchCalls}',
+            at: DateTime.now()));
+        return _stop(StopReason.maxToolCalls);
+      }
+      // Mesma query canónica duas vezes seguidas: corte imediato.
+      if (state.lastSearchKey == key) {
+        state.log.add(LoopStep(
+            index: state.steps,
+            kind: 'guard',
+            summary: 'search_tools repetido com a mesma query: "$key"',
+            at: DateTime.now()));
+        return _stop(StopReason.cycleDetected);
+      }
+      state.lastSearchKey = key;
+    }
+
     final count = (state.callCounts[key] ?? 0) + 1;
     state.callCounts[key] = count;
     state.toolCalls++;
@@ -178,11 +252,16 @@ class LoopGuard {
         state.recentCalls[state.recentCalls.length - 2] == key) {
       return _stop(StopReason.cycleDetected);
     }
-    // Ping-pong A→B→A→B: duas ferramentas a alternar sem fim.
+    // Ping-pong A→B→A→B: duas ferramentas a alternar sem fim. O par
+    // search_tools → tool_X é uma descoberta legítima, não um ciclo.
     if (state.recentCalls.length >= 3) {
       final r = state.recentCalls;
       final a = r[r.length - 3], b = r[r.length - 2], a2 = r[r.length - 1];
-      if (a == a2 && b == key && a != b) {
+      final involvesSearch = isSearchToolKey(a) ||
+          isSearchToolKey(b) ||
+          isSearchToolKey(a2) ||
+          isSearchToolKey(key);
+      if (!involvesSearch && a == a2 && b == key && a != b) {
         state.log.add(LoopStep(
             index: state.steps,
             kind: 'guard',
