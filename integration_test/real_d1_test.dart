@@ -311,4 +311,104 @@ void main() {
     timeout: const Timeout(Duration(minutes: 20)),
     skip: !const bool.fromEnvironment('REAL_D1'),
   );
+
+  testWidgets(
+    'd1-2B ONNX cobre as dez primitivas num só forward',
+    (tester) async {
+      await tester.runAsync(() async {
+        final decoder = await _download('onnx/decoder_q4.onnx', 358945);
+        await _download('onnx/decoder_q4.onnx_data', 1741806592);
+        final vision =
+            await _download('onnx/vision_encoder_q8.onnx', 126353);
+        await _download('onnx/vision_encoder_q8.onnx_data', 196153344);
+        final tokenizer = await _download('tokenizer.json', 17908258);
+        final processor = await _download('processor_config.json', 1254);
+        final image = await _redImage();
+
+        final engine = D1OnnxEngine();
+        await engine.load(
+          paths: D1ModelPaths(
+            decoderPath: decoder.path,
+            decoderDataPath: '${decoder.parent.path}/decoder_q4.onnx_data',
+            visionEncoderPath: vision.path,
+            tokenizerPath: tokenizer.path,
+            processorConfigPath: processor.path,
+          ),
+          config: const D1Config(threads: 2, maxStateTokens: 2048),
+        );
+        final response = await engine.decide(D1Request(
+          state: 'Fatura da ACME. Total: 42,50 EUR. Vencimento: 2026-12-01. '
+              'Assinado por João Silva.',
+          media: [D1Media(kind: D1MediaKind.image, path: image.path)],
+          questions: const [
+            D1NoulQuestion(
+              id: 'noul',
+              instructions: 'A fatura é da ACME?',
+              trueCriteria: 'sim',
+              falseCriteria: 'não',
+            ),
+            D1ChoiceQuestion(
+              id: 'choice',
+              instructions: 'O que fazer?',
+              criteria: {'pay': 'Pagar', 'hold': 'Reter'},
+            ),
+            D1ChoiceQuestion(
+              id: 'multiple',
+              instructions: 'Quem emitiu?',
+              criteria: {'acme': 'ACME', 'other': 'Outra'},
+              multiple: true,
+            ),
+            D1ScoreQuestion(
+              id: 'score',
+              instructions: 'Qual o risco?',
+              levels: ['baixo', 'médio', 'alto'],
+            ),
+            D1TextQuestion(
+              id: 'text',
+              instructions: 'Quem assinou?',
+            ),
+            D1NumberQuestion(
+              id: 'number',
+              instructions: 'Qual o total?',
+              unitHint: 'EUR',
+            ),
+            D1DateQuestion(
+              id: 'date',
+              instructions: 'Qual o vencimento?',
+            ),
+            D1RangeQuestion(
+              id: 'range',
+              instructions: 'Qual o total?',
+              min: 0,
+              max: 100,
+              unitHint: 'EUR',
+            ),
+            D1BoxQuestion(
+              id: 'box',
+              instructions: 'Onde está o objeto?',
+              target: 'objeto',
+            ),
+            D1BoxesQuestion(
+              id: 'boxes',
+              instructions: 'Onde estão os objetos?',
+              target: 'objeto',
+              maxBoxes: 4,
+            ),
+          ],
+        ));
+        await engine.unload();
+        // ignore: avoid_print
+        print('D1 ALL: input_tokens=${response.inputTokens} '
+            'latency=${response.latencyMs} answers=${response.answers.length}');
+        for (final e in response.answers.entries) {
+          // ignore: avoid_print
+          print('D1 ALL ${e.key}: ${e.value.summary}');
+        }
+        expect(response.answers.length, 10);
+        expect(response.inputTokens, greaterThan(0));
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+    skip: !const bool.fromEnvironment('REAL_D1'),
+  );
 }
