@@ -528,6 +528,10 @@ Object _runOne({
             [audioTokens, 2048],
           );
   }
+  if (available.contains('video_features')) {
+    // O caminho de vídeo do d1 ainda não está ligado; o grafo exige o input.
+    inputs['video_features'] = _emptyFloatTensor(const [0, 2048]);
+  }
 
   if (!available.contains('input_ids') ||
       !available.contains('attention_mask') ||
