@@ -48,8 +48,12 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
+# Repo-espelho de modelos (repositório Git próprio, público)
+models-repo/
+
 # Artefactos de build locais (reproduzíveis via tools/)
 tools/llama.cpp/
+third_party/llama.cpp/
 tools/laya_artifact/
 android/app/src/main/jniLibs/
 *.part

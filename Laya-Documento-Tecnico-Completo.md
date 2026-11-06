@@ -1,4 +1,8 @@
 # Laya — Documento Técnico Completo (v2.0)
+
+> **LEGADO (2026-11-06):** a app migrou para Liquid AI LFM3 + d1. Este
+> documento fica como histórico da arquitetura anterior; ver
+> `docs/lfm3-migration.md` e `docs/d1-onnx-contract.md`.
 ## Modelo de Decisão "System One" de 421M · arquitetura, contrato, instalação, mobile (Flutter/React Native), LLM auxiliar e orquestração
 
 **Data:** 2026-09-27 · **Versão:** 2.0 (complementada com relatório comparativo Jev/CLM/Laya e pesquisa profunda mobile `--deep-research`)

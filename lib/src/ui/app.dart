@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../services/store.dart';
 import 'browser_tab.dart';
-import 'laya_tab.dart';
+import 'd1_tab.dart';
 import 'models_tab.dart';
 import 'prompts_tab.dart';
 import 'tools_tab.dart';
@@ -19,7 +19,7 @@ class OfflineAiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Offline AI — Teste de Prompts',
+      title: 'Offline AI — LFM3 Mobile Lab',
       theme: ThemeData(
         colorSchemeSeed: Colors.teal,
         useMaterial3: true,
@@ -42,10 +42,10 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
   static const List<String> _titles = [
-    'Prompts',
-    'Laya (decisor tipado)',
-    'Tools',
-    'Modelos',
+    'Prompts · LFM3',
+    'Decisões d1',
+    'LLM + Tools',
+    'Modelos LFM3',
     'Browser',
   ];
 
@@ -57,7 +57,7 @@ class _HomeShellState extends State<HomeShell> {
         index: _index,
         children: [
           PromptsTab(store: widget.store),
-          LayaTab(store: widget.store),
+          D1Tab(store: widget.store),
           ToolsTab(store: widget.store),
           ModelsTab(store: widget.store),
           BrowserTab(store: widget.store),
@@ -73,7 +73,7 @@ class _HomeShellState extends State<HomeShell> {
           ),
           NavigationDestination(
             icon: Icon(Icons.fact_check_outlined),
-            label: 'Laya',
+            label: 'd1',
           ),
           NavigationDestination(
             icon: Icon(Icons.handyman_outlined),

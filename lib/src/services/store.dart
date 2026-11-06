@@ -1,7 +1,7 @@
 /// Persistência leve de configurações, prompts e histórico (shared_preferences).
 ///
 /// Princípio: nunca rebentar com valores ausentes/corrompidos — tudo cai para
-/// os defaults determinísticos do domínio ([LlmConfig], [LayaConfig]).
+/// os defaults determinísticos do domínio ([LlmConfig], [D1Config]).
 library;
 
 import 'dart:convert';
@@ -18,21 +18,22 @@ class AppStore {
   final SharedPreferences _prefs;
 
   static const String _kLlm = 'cfg.llm';
-  static const String _kLaya = 'cfg.laya';
+  static const String _kD1 = 'cfg.d1';
   static const String _kSystem = 'prompt.system';
   static const String _kUser = 'prompt.user';
   static const String _kTask = 'prompt.task';
-  static const String _kLayaState = 'laya.state';
-  static const String _kTemplate = 'laya.template';
+  static const String _kD1State = 'd1.state';
+  static const String _kTemplate = 'd1.template';
   static const String _kRuns = 'runs.history';
   static const String _kGoldens = 'runs.goldens';
+  static const String _kSelectedGenerator = 'models.selected_generator';
 
   /// Teto do histórico (memória do telefone é limitada).
   static const int maxRuns = 40;
 
   /// Tarefa por omissão do demo de tool calling.
   static const String defaultTask =
-      "Calcula 17*23+5 e guarda o resultado na nota 'res'";
+      "Calcula (17 * 23) + 109 e guarda o resultado na nota 'orcamento'";
 
   static Future<AppStore> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -54,18 +55,18 @@ class AppStore {
   Future<void> saveLlmConfig(LlmConfig config) =>
       _prefs.setString(_kLlm, jsonEncode(config.toJson()));
 
-  LayaConfig get layaConfig {
-    final raw = _prefs.getString(_kLaya);
-    if (raw == null) return const LayaConfig();
+  D1Config get d1Config {
+    final raw = _prefs.getString(_kD1);
+    if (raw == null) return const D1Config();
     try {
-      return LayaConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      return D1Config.fromJson(jsonDecode(raw) as Map<String, dynamic>);
     } catch (_) {
-      return const LayaConfig();
+      return const D1Config();
     }
   }
 
-  Future<void> saveLayaConfig(LayaConfig config) =>
-      _prefs.setString(_kLaya, jsonEncode(config.toJson()));
+  Future<void> saveD1Config(D1Config config) =>
+      _prefs.setString(_kD1, jsonEncode(config.toJson()));
 
   // ---------------------------------------------------------------- prompts
 
@@ -82,13 +83,20 @@ class AppStore {
 
   Future<void> saveTaskPrompt(String value) => _prefs.setString(_kTask, value);
 
-  String get layaState => _prefs.getString(_kLayaState) ?? '';
+  String get d1State => _prefs.getString(_kD1State) ?? '';
 
-  Future<void> saveLayaState(String value) => _prefs.setString(_kLayaState, value);
+  Future<void> saveD1State(String value) => _prefs.setString(_kD1State, value);
 
   String get selectedTemplateId => _prefs.getString(_kTemplate) ?? '';
 
-  Future<void> saveSelectedTemplateId(String id) => _prefs.setString(_kTemplate, id);
+  Future<void> saveSelectedTemplateId(String id) =>
+      _prefs.setString(_kTemplate, id);
+
+  /// Bundle gerador escolhido manualmente (opcional).
+  String get selectedGeneratorId => _prefs.getString(_kSelectedGenerator) ?? '';
+
+  Future<void> saveSelectedGeneratorId(String id) =>
+      _prefs.setString(_kSelectedGenerator, id);
 
   // ---------------------------------------------------------------- corridas
 
@@ -137,7 +145,9 @@ class AppStore {
     final map = goldens;
     map[record.signature] = record;
     await _prefs.setString(
-        _kGoldens, jsonEncode({for (final e in map.entries) e.key: e.value.toJson()}));
+        _kGoldens,
+        jsonEncode(
+            {for (final e in map.entries) e.key: e.value.toJson()}));
   }
 
   /// Golden registado para a assinatura, se existir.

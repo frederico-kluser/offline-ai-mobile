@@ -1,16 +1,19 @@
-# offline-ai-mobile
+# offline-ai-mobile · Liquid AI LFM3 + d1
 
-App **offline** de teste de prompts com dois motores locais:
+App **offline** de laboratório para a suíte móvel da Liquid AI:
 
-- **MiniCPM5-2B** (LLM 2,5B, Apache 2.0) — geração de texto, modo thinking
-  alternável e **tool calling** no formato XML oficial, com guardrails anti-loop;
-- **Laya typed-decisions** (decisor "System One", 421M, Apache 2.0) — decisões
-  tipadas `noul` / `choice` / `score` com probabilidades calibradas, sem gerar
-  texto.
+- **LFM3-1.7B** — texto, raciocínio `<think>`, agentes e
+  **Deferred Tool Search** (`search_tools` → `<additional_tools>`);
+- **LFM3-VL-2B** — visão nativa, OCR, pointing/grounding e vídeo a 2 fps;
+- **LFM3-Audio-2B** — ASR, LiveASR, TTS a 24 kHz e voz-texto entrelaçado;
+- **LFM3-Omni-2B** — texto + imagem + vídeo com banda sonora + áudio;
+- **d1-2B / d1-Omni-2B** — decisor "System One" com dez primitivas tipadas
+  (`noul`, `choice`, `multiple`, `score`, spans, `range`, `box`, `boxes`) num
+  único forward pass, **sem gerar tokens**.
 
-Android primeiro (validado em emulador x86_64 com 8 GB de RAM e GPU), iOS a
-seguir (a camada de domínio é 100% Dart). Nenhum modelo vem embutido: a app
-descarrega-os por botão para a pasta privada.
+Android primeiro; iOS pela mesma camada de domínio Dart. Nenhum peso vem
+embutido: a app descarrega bundles multi-ficheiro para a pasta privada,
+verifica SHA-256, retoma downloads por HTTP Range e instala atomicamente.
 
 **Filosofia: mais qualidade que performance, mais determinismo que liberdade.**
 
@@ -18,128 +21,144 @@ descarrega-os por botão para a pasta privada.
 
 | Tela | O que faz |
 | --- | --- |
-| **Prompts** | banco de testes: system/user prompt, execução, métricas (tokens, latência, motivo de paragem, fingerprint), histórico com diff golden byte-a-byte |
-| **Laya** | templates de decisões tipadas editáveis (roteamento PT/EN, guardrails de agente, verificação de negação), execução com probabilidades e confiança, config do motor |
-| **LLM + Tools** | configuração completa do MiniCPM5-2B (validada por regras) e demo de tool calling multi-passo com timeline de passos e cortes de guardrail visíveis |
-| **Modelos** | descarregar / verificar / apagar artefactos (GGUF Q4_K_M, Q5_K_M e Q8_0 do MiniCPM5-2B; kit ONNX fp32 do Laya) |
-| **Browser** | browser embutido em tela inteira controlado por 3 caminhos: teclas flutuantes (humano), piloto Laya (decisão tipada) e agente MiniCPM5-2B (tool calling) — feature de teste; ver `pesquisas/2026-09-27-browser-embutido/NOTAS-CONHECIMENTO.md` |
+| **Prompts · LFM3** | banco de testes: system/user prompt, anexos imagem/vídeo/áudio, perfis de amostragem, raciocínio `<think>` separado, métricas, fingerprint e histórico com diff golden |
+| **Decisões d1** | templates das dez primitivas, state, anexos, perguntas faladas (d1-Omni), respostas com probabilidades, spans e caixas desenhadas sobre a imagem |
+| **LLM + Tools** | agente LFM3 com 50+ ferramentas deferidas, timeline de raciocínio/tool calls/resultados/cortes do LoopGuard e ferramentas descobertas |
+| **Modelos LFM3** | perfilador de hardware (Tier 1/2/3), micro-benchmark real, catálogo de 11 bundles, download/verificação/remoção |
+| **Browser** | browser embutido controlado por teclas humanas, piloto d1 (System One) e agente LFM3 (tool calling), com gates de injeção/irreversibilidade |
 
-## Determinismo e anti-loops (o cerne)
-
-Defaults impostos pela app — e o porquê, com evidência:
-
-- `min_p = 0.0` **obrigatório**: o default `0.05` do llama.cpp filtra os tokens
-  que quebrariam o ciclo e é a causa raiz dos "loops eternos" do MiniCPM5-2B
-  (confirmado pela equipa OpenBMB);
-- receita oficial do modelo: `temperature 1.0`, `top_p 0.95`, `min_p 0.0` com
-  **seed fixa** (nunca `-1`): greedy (temperature 0) *aumenta* o risco de loop;
-- **sampler DRY** ativo (`0.8 / 1.75 / 2`, janela 1024) — suprime loops
-  verbáticos sem corromper JSON de tool calls (ao contrário de
-  `repeat_penalty > 1.05`);
-- `max_tokens` com teto explícito sempre (o default do llama.cpp é infinito);
-- `repeat_penalty = 1.0` (neutra), `presence/frequency_penalty = 0.0`.
-
-Guardrails de runtime — o prompt é orientação, o enforcement é do código
-(`lib/src/guardrails/loop_guard.dart`):
-
-1. máximo de passos do agente (8) e de tool calls consecutivas (6);
-2. deteção de ciclo pela chave canónica `ferramenta(argumentos ordenados)` —
-   corta na 3.ª repetição e no ping-pong A→B→A→B;
-3. repetição degenerada de texto por n-gramas de 4 palavras (SER@4);
-4. orçamento de tokens e timeout por passo;
-5. validação **rígida** de schema dos argumentos antes de executar (o modelo é
-   sugestão, nunca autoridade);
-6. resultados de ferramentas truncados com marcador explícito;
-7. **resposta final forçada** (uma última chamada sem ferramentas) e fallback
-   estático determinístico — nunca loop, nunca crash.
-
-Cada execução é assinada por hash de (modelo + prompt renderizado +
-parâmetros + runtime) e o motivo de paragem é sempre explícito (`StopReason`).
-
-## Tool calling
-
-Parser e chat template fiéis ao `chat_template.jinja` oficial do
-[openbmb/MiniCPM5-2B](https://huggingface.co/openbmb/MiniCPM5-2B): o modelo emite
-chamadas em XML com a tag `function` (atributo `name`) contendo tags `param`
-(atributo `name`); valores com caracteres especiais usam CDATA; os resultados
-voltam como mensagens `tool_response` agrupadas em papel `user`. O exemplo
-embutido (`lib/src/agent/tools.dart`) usa três ferramentas locais determinísticas
-— calculadora segura (parser próprio, sem `eval`) e notas `note_save` /
-`note_read` — mais a ferramenta de conclusão `final_answer` (sinal explícito de
-saída do loop).
-
-## Modelos descarregáveis
-
-| Artefacto | Tamanho | Notas |
-| --- | --- | --- |
-| MiniCPM5-2B GGUF **Q8_0** | 2,68 GB | **único — o melhor**: qualidade ≈F16 (tabela oficial OpenBMB), thinking fiável; ~3,5 GB em RAM a 8k |
-| Laya typed-decisions oficial · **ONNX fp32** | 1,69 GB | checkpoint oficial Convai sem compressão; head fundida (5 inputs → logits + act_logits) + tokenizer BPE ByteLevel |
-
-Atenção ao **KV cache** (~42 KB/token neste modelo): 131k de contexto exigiriam
-~5,5 GB só de KV — a app usa 8k–16k por defeito. Evitar quantizações ≤ Q3_K
-(colapso medido de qualidade). Fontes: [bartowski/MiniCPM5-2B-GGUF](https://huggingface.co/bartowski/MiniCPM5-2B-GGUF),
-[openbmb/MiniCPM5-2B-GGUF](https://huggingface.co/openbmb/MiniCPM5-2B-GGUF),
-[convaiinnovations/laya-typed-decisions](https://huggingface.co/convaiinnovations/laya-typed-decisions)
-(checkpoint oficial) e o [release `models-laya-typed-decisions-fp32-v1`](https://github.com/frederico-kluser/offline-ai-mobile/releases/tag/models-laya-typed-decisions-fp32-v1)
-(export ONNX fp32 gerado por `tools/laya_export_fp32.py`).
-
-## Build (Android)
-
-```bash
-# 1. Compilar o llama.cpp para Android (x86_64 do emulador + arm64-v8a)
-bash tools/llama_build.sh
-
-# 2. Patch AGP 9 no pub cache (uma vez por máquina; o ./build.sh faz isto)
-bash tools/patch_inappwebview_agp9.sh
-
-# 3. Build do APK
-flutter build apk --release
-
-# 4. Instalar num emulador/dispositivo
-flutter install
-```
-
-Requisitos: Flutter 3.47+, Android SDK 36, NDK 27.2, CMake 3.22.1.
-
-## Build (iOS)
-
-```bash
-# 1. Compilar o llama.cpp para iOS (device arm64 + simulador, Metal embutido)
-bash tools/llama_build_ios.sh   # gera ios/pods/llama_ffi/llama.xcframework
-
-# 2. Build (simulador ou device)
-flutter build ios --no-codesign        # device, sem assinatura
-flutter build ios --simulator          # simulador
-
-# 3. Gate de qualidade E2E (MOTORES REAIS dentro da app)
-flutter test integration_test -d <sim-udid>
-```
-
-Requisitos: Xcode 27+, CocoaPods, CMake. **Nota de GPU**: o Metal do llama.cpp
-está validado no macOS nativo (saída correta) e ativa-se automaticamente em
-dispositivos Apple reais (`gpuLayers=-1`); o **simulador iOS tem Metal
-incompleto** (produz mojibake) e o motor deteta-o, usando CPU aí. O gate final
-é um iPhone físico — ver [`docs/runbook-iphone-fisico.md`](docs/runbook-iphone-fisico.md).
+![Ecrã Prompts no iOS Simulator](docs/screenshots/ios-prompts.png)
 
 ## Arquitetura
 
 ```
-lib/src/domain/      tipos (decisões tipadas, config determinística, registos)
-lib/src/guardrails/  LoopGuard — cortes anti-loop determinísticos
-lib/src/agent/       chat template + parser XML do MiniCPM5, loop de agente, ferramentas
-lib/src/engines/     interfaces + motores (llama.cpp FFI; ONNX Runtime do Laya)
-lib/src/services/    catálogo de modelos + download verificado (sha256, .part → instalação atómica)
-lib/src/ui/          telas Material 3 (padrão do SO)
-pesquisas/           dossiê de pesquisa profunda que fundamenta as decisões
+lib/src/domain/      LlmConfig LFM3, d1 types, templates, media, tool spec
+lib/src/guardrails/  LoopGuard — passos, ciclos, SER@4, teto de <think>, search_tools
+lib/src/agent/       ChatML LFM3, parser XML, Deferred Tools, ToolLoop
+lib/src/engines/     llama.cpp FFI (libllama + libmtmd), d1 ONNX, tokenizer BPE
+lib/src/services/    catálogo, downloader Range/SHA, hardware profiler, mídia
+lib/src/ui/          5 ecrãs Material 3
+tools/               build llama.cpp b12088, release de modelos, dump do manifesto
+pesquisas/           dossiê de pesquisa profunda (fontes e contrato d1)
 ```
 
-## Documentação de origem
+### Motores (porquê dois)
 
-As decisões (formato de tool calling, parâmetros anti-loop, quantização,
-runtime, guardrails) vêm de uma pesquisa profunda documentada em
-[`pesquisas/`](pesquisas/) e do documento técnico do Laya
-([`Laya-Documento-Tecnico-Completo.md`](Laya-Documento-Tecnico-Completo.md)).
+- **llama.cpp FFI (b12088+)** — LFM3-1.7B/VL/Audio/Omni com `libmtmd` para
+  imagem, vídeo e áudio, `use_mmap` (pesos como páginas de ficheiro, fora da
+  RSS da app) e KV cache F16/Q8_0. A arquitetura tri-híbrida do LFM3 só faz
+  crescer o KV nas 6 camadas de atenção global: **12,29 KB/token** em FP16 ou
+  **6,53 KB/token** em Q8_0.
+- **onnxruntime_v2** — d1-2B/d1-Omni-2B ONNX. A via GGUF do llama.cpp
+  (`/v1/systemone`) só expõe `noul`/`choice`/`score`; as primitivas tipadas
+  (spans, `range`, `box`, `boxes`, `multiple`) exigem os grafos ONNX.
 
-## Licença
+### Perfilador de hardware
 
-Código: MIT. Modelos: Apache 2.0 (OpenBMB / Convai Innovations).
+`DeviceCapabilityService` lê RAM total/livre, disco, núcleos de performance,
+`asimddp`/`i8mm` e GPU através de `MethodChannel('offline_ai_mobile/hardware')`
+(Kotlin/Swift). Classifica o telemóvel em Tier 1 (4 GB), Tier 2 (6 GB) ou
+Tier 3 (8 GB+) e constrói a matriz de compatibilidade. O micro-benchmark mede
+prefill/decode reais e ajusta o contexto/`image_max_tokens`/raciocínio.
+
+## Modelos e licença
+
+O catálogo aponta para o espelho
+[`lfm3-mobile-models`](https://github.com/frederico-kluser/lfm3-mobile-models)
+(release `models-lfm3-suite-v1`, manifesto + SHA-256) e, em fallback, para o
+Hugging Face oficial:
+
+| Bundle | Tamanho | Uso |
+| --- | --- | --- |
+| LFM3-1.7B QAD-Q4_0 | 1,05 GB | agente, tools, raciocínio |
+| LFM3-1.7B Q4_K_M / Q8_0 | 1,10 / 1,85 GB | qualidade extra |
+| LFM3-VL-2B Q4_K_M + mmproj Q8_0 | 1,30 GB | visão/vídeo |
+| LFM3-Audio-2B Q4_K_M + mmproj Q8_0 | 1,40 GB | ASR/TTS |
+| LFM3-Omni-2B Q4_K_M + mmproj Q4_K_M | 1,39 GB | omni |
+| d1-2B Q4_K_M + mmproj Q8_0 | 1,30 GB | d1 GGUF (3 primitivas) |
+| d1-Omni-2B Q8_0 + mmproj Q8_0 | 2,17 GB | d1 áudio GGUF |
+| d1-2B-ONNX q4 + visão q8 | 1,96 GB | d1 completo (validado no iOS) |
+| d1-Omni-2B-ONNX q4 + visão/áudio | 2,21 GB | d1 completo + áudio |
+
+**Código:** MIT. **Pesos:** [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE)
+— Apache-2.0-like, com patentes, mas o §5 limita o uso comercial a
+organizações cujo grupo tenha receita anual **< 10 000 000 USD**; acima disso
+é necessária licença comercial da Liquid AI. O `d1-omni-600M` é **LFM2
+legado**, não LFM3; serve apenas de fallback de baixa RAM.
+
+## Build
+
+```bash
+# 1. llama.cpp b12088 com libmtmd (Android; NDK 27.2 + CMake 3.22.1)
+bash tools/llama_build.sh
+
+# 2. iOS (Xcode 27+; gera llama.xcframework com llama+mtmd)
+bash tools/llama_build_ios.sh
+
+# 3. Patch AGP 9 do flutter_inappwebview (uma vez por máquina)
+bash tools/patch_inappwebview_agp9.sh
+
+# 4. App
+flutter build apk --release
+# ou: flutter build ios --no-codesign / --simulator
+```
+
+Requisitos: Flutter 3.47+, Android SDK 36/NDK 27.2, Xcode 27+.
+
+## Testes
+
+```bash
+flutter analyze
+flutter test                 # 79 testes de domínio, parser, guardrails, d1, mídia, download, hardware, UI
+flutter test integration_test -d <device>   # CT-01..CT-12 + hardware + arranque (SKIP sem modelos)
+```
+
+Os cenários CT-01..CT-12 estão em
+[`integration_test/lfm3_e2e_test.dart`](integration_test/lfm3_e2e_test.dart) e
+em [`docs/ct-scenarios.md`](docs/ct-scenarios.md).
+
+### Inferência real (opt-in, iOS Simulator)
+
+```bash
+flutter test integration_test/real_lfm3_test.dart --dart-define=REAL_LFM3=true -d <sim>
+flutter test integration_test/real_d1_test.dart   --dart-define=REAL_D1=true  -d <sim>
+```
+
+Resultados (2026-11-06): LFM3-1.7B `"Olá! Como posso ajudar você hoje?"`;
+LFM3-VL-2B `"Vermelho"` numa imagem vermelha; LFM3-Audio-2B transcreveu
+`"Olá, mundo! Este é um teste de áudio."`; d1-2B ONNX respondeu a `noul` de
+texto (38 tokens, 769 ms), com imagem (46 tokens, 1093 ms) e d1-Omni com
+áudio falado (70 tokens, 1668 ms). LFM3-VL-2B e d1-2B correram sobre vídeo a
+2 fps; o **LFM3-Omni-2B viu 4 frames e ouviu a banda sonora** (iOS 1201 ms;
+Android 293 s no emulador). O d1-2B devolveu **as dez primitivas tipadas**
+num só forward (842 tokens, 13,3 s; `noul`/`choice`/`number` certos, `text`
+parcial e `date`/`range`/`box` a mostrar os limites do modelo). O mesmo
+LFM3-1.7B também gerou texto no **Android x86_64** (emulador lento, 137 s).
+Detalhes e latências em
+[`docs/real-inference-validation.md`](docs/real-inference-validation.md).
+
+## Limitações honestas
+
+- O d1 ONNX executa **texto, imagem (`image_features`), áudio
+  (`audio_features`, d1-Omni) e vídeo (frames a 2 fps → `video_features`)**.
+  O d1 de texto cobre slots/spans; a validação real cobriu texto, imagem,
+  áudio e vídeo.
+- A extração de vídeo usa o canal nativo para frames a 2 fps **e banda sonora
+  WAV 16 kHz** (AVAssetReader no iOS, MediaCodec no Android); o LFM3-Omni
+  vídeo+som foi validado nos dois sistemas. O d1 usa os frames para
+  `video_features`; a banda sonora não entra no d1.
+- O espelho GitHub publica **todos os GGUF/mmproj** e o manifesto/SHA-256;
+  os subgrafos ONNX do d1 são servidos pelo Hugging Face oficial.
+- Não há pesos no git: são sempre descarregados e verificados.
+
+## Documentação
+
+- [`docs/lfm3-migration.md`](docs/lfm3-migration.md) — decisões da migração.
+- [`docs/d1-onnx-contract.md`](docs/d1-onnx-contract.md) — prompt, tensores e
+  pós-processamento do d1.
+- [`docs/ct-scenarios.md`](docs/ct-scenarios.md) — matriz CT-01..CT-12.
+- [`docs/real-inference-validation.md`](docs/real-inference-validation.md) —
+  outputs e latências dos gates reais no iOS Simulator.
+- [`tools/llama_ffi.md`](tools/llama_ffi.md) — layout das structs e build.
+- [`pesquisas/`](pesquisas/) — dossiê de pesquisa com fontes.
+

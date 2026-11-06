@@ -1,5 +1,5 @@
-/// Editor de [LlmConfig] (compacto para a aba Prompts, completo para
-/// LLM + Tools) e caixa de validação com as violações a vermelho.
+/// Editor de [LlmConfig] (compacto para Prompts, completo nas Definições)
+/// e caixa de validação com as violações a vermelho.
 library;
 
 import 'package:flutter/material.dart';
@@ -8,7 +8,8 @@ import '../domain/llm_config.dart';
 
 /// Caixa de validação: violações a vermelho (bloqueiam execuções).
 class ValidationBox extends StatelessWidget {
-  const ValidationBox(this.problems, {super.key, this.okMessage = 'Configuração válida'});
+  const ValidationBox(this.problems,
+      {super.key, this.okMessage = 'Configuração válida'});
 
   final List<String> problems;
   final String okMessage;
@@ -45,7 +46,8 @@ class ValidationBox extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.error_outline, size: 18, color: scheme.onErrorContainer),
+              Icon(Icons.error_outline,
+                  size: 18, color: scheme.onErrorContainer),
               const SizedBox(width: 8),
               Expanded(
                 child: Text('Configuração inválida (${problems.length})',
@@ -68,11 +70,6 @@ class ValidationBox extends StatelessWidget {
   }
 }
 
-/// Editor dos campos de [LlmConfig].
-///
-/// [compact] = só os parâmetros essenciais (temperature, maxTokens, seed,
-/// enableThinking) com os defaults determinísticos; caso contrário, TODOS os
-/// campos.
 class LlmConfigEditor extends StatelessWidget {
   const LlmConfigEditor({
     super.key,
@@ -87,10 +84,31 @@ class LlmConfigEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final profile = DropdownButtonFormField<Lfm3Profile>(
+      initialValue: config.profile,
+      decoration: const InputDecoration(
+        labelText: 'perfil LFM3',
+        isDense: true,
+        border: OutlineInputBorder(),
+      ),
+      items: [
+        for (final p in Lfm3Profile.values)
+          DropdownMenuItem(value: p, child: Text(p.label)),
+      ],
+      onChanged: (p) {
+        if (p == null) return;
+        onChanged(p == Lfm3Profile.custom
+            ? config.copyWith(profile: p)
+            : LlmConfig.forProfile(p));
+      },
+    );
+
     if (compact) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          profile,
+          const SizedBox(height: 8),
           _DoubleSlider(
             label: 'temperature',
             value: config.temperature,
@@ -105,7 +123,7 @@ class LlmConfigEditor extends StatelessWidget {
                 child: _IntField(
                   label: 'maxTokens',
                   value: config.maxTokens,
-                  hint: 'teto de tokens (512)',
+                  hint: 'teto explícito',
                   onChanged: (v) => onChanged(config.copyWith(maxTokens: v)),
                 ),
               ),
@@ -122,7 +140,7 @@ class LlmConfigEditor extends StatelessWidget {
           ),
           _BoolTile(
             label: 'enableThinking',
-            subtitle: 'modo thinking do chat template (ON p/ tool-use complexo)',
+            subtitle: 'bloco <think> (ON para tool-use complexo)',
             value: config.enableThinking,
             onChanged: (v) => onChanged(config.copyWith(enableThinking: v)),
           ),
@@ -133,7 +151,9 @@ class LlmConfigEditor extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Amostragem (receita oficial MiniCPM5-2B)',
+        profile,
+        const SizedBox(height: 8),
+        Text('Amostragem (receita LFM3)',
             style: Theme.of(context).textTheme.labelLarge),
         _DoubleSlider(
           label: 'temperature',
@@ -179,15 +199,12 @@ class LlmConfigEditor extends StatelessWidget {
           divisions: 20,
           onChanged: (v) => onChanged(config.copyWith(minP: v)),
         ),
-        const SizedBox(height: 8),
-        Text('Repetição e DRY (anti-loop)',
-            style: Theme.of(context).textTheme.labelLarge),
         _DoubleSlider(
           label: 'repeat_penalty',
           value: config.repeatPenalty,
-          min: 0.8,
+          min: 1,
           max: 1.5,
-          divisions: 70,
+          divisions: 50,
           onChanged: (v) => onChanged(config.copyWith(repeatPenalty: v)),
         ),
         Row(
@@ -210,62 +227,41 @@ class LlmConfigEditor extends StatelessWidget {
             ),
           ],
         ),
-        _DoubleSlider(
-          label: 'presence_penalty',
-          value: config.presencePenalty,
-          min: -2,
-          max: 2,
-          divisions: 80,
-          onChanged: (v) => onChanged(config.copyWith(presencePenalty: v)),
-        ),
-        _DoubleSlider(
-          label: 'frequency_penalty',
-          value: config.frequencyPenalty,
-          min: -2,
-          max: 2,
-          divisions: 80,
-          onChanged: (v) => onChanged(config.copyWith(frequencyPenalty: v)),
+        const SizedBox(height: 8),
+        Text('Raciocínio e resposta',
+            style: Theme.of(context).textTheme.labelLarge),
+        _BoolTile(
+          label: 'enableThinking',
+          subtitle: 'bloco <think> (LFM3-1.7B/VL-2B; o Omni não tem)',
+          value: config.enableThinking,
+          onChanged: (v) => onChanged(config.copyWith(enableThinking: v)),
         ),
         _BoolTile(
-          label: 'dry_enabled',
-          subtitle: 'sampler DRY — defesa anti-loop mais robusta (λ=0.8, β=1.75)',
-          value: config.dryEnabled,
-          onChanged: (v) => onChanged(config.copyWith(dryEnabled: v)),
+          label: 'preserveThinking',
+          subtitle: 'manter <think> de turnos antigos no contexto',
+          value: config.preserveThinking,
+          onChanged: (v) => onChanged(config.copyWith(preserveThinking: v)),
         ),
-        _DoubleSlider(
-          label: 'dry_multiplier (λ)',
-          value: config.dryMultiplier,
-          min: 0,
-          max: 2,
-          divisions: 40,
-          onChanged: (v) => onChanged(config.copyWith(dryMultiplier: v)),
+        _IntField(
+          label: 'maxThinkingTokens',
+          value: config.maxThinkingTokens,
+          hint: 'teto do bloco <think> (1024 em mobile)',
+          onChanged: (v) => onChanged(config.copyWith(maxThinkingTokens: v)),
         ),
-        _DoubleSlider(
-          label: 'dry_base (β)',
-          value: config.dryBase,
-          min: 1,
-          max: 4,
-          divisions: 60,
-          onChanged: (v) => onChanged(config.copyWith(dryBase: v)),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: _IntField(
-                label: 'dry_allowed_length',
-                value: config.dryAllowedLength,
-                onChanged: (v) => onChanged(config.copyWith(dryAllowedLength: v)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _IntField(
-                label: 'dry_penalty_last_n',
-                value: config.dryPenaltyLastN,
-                onChanged: (v) => onChanged(config.copyWith(dryPenaltyLastN: v)),
-              ),
-            ),
+        DropdownButtonFormField<ResponseFormat>(
+          initialValue: config.responseFormat,
+          decoration: const InputDecoration(
+            labelText: 'response_format',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            for (final r in ResponseFormat.values)
+              DropdownMenuItem(value: r, child: Text(r.wire)),
           ],
+          onChanged: (r) {
+            if (r != null) onChanged(config.copyWith(responseFormat: r));
+          },
         ),
         const SizedBox(height: 8),
         Text('Runtime e contexto',
@@ -276,7 +272,7 @@ class LlmConfigEditor extends StatelessWidget {
               child: _IntField(
                 label: 'threads',
                 value: config.threads,
-                hint: 'big_cores − 1',
+                hint: 'performance cores − 2',
                 onChanged: (v) => onChanged(config.copyWith(threads: v)),
               ),
             ),
@@ -285,7 +281,7 @@ class LlmConfigEditor extends StatelessWidget {
               child: _IntField(
                 label: 'gpu_layers',
                 value: config.gpuLayers,
-                hint: '0 = CPU',
+                hint: '-1 todas, 0 CPU',
                 onChanged: (v) => onChanged(config.copyWith(gpuLayers: v)),
               ),
             ),
@@ -294,20 +290,125 @@ class LlmConfigEditor extends StatelessWidget {
         _IntField(
           label: 'context_size',
           value: config.contextSize,
-          hint: '8k–16k em 8 GB de RAM',
+          hint: '8K–32K em mobile (KV 12,29 KB/token FP16)',
           onChanged: (v) => onChanged(config.copyWith(contextSize: v)),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _IntField(
+                label: 'n_batch',
+                value: config.nBatch,
+                onChanged: (v) => onChanged(config.copyWith(nBatch: v)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _IntField(
+                label: 'n_ubatch',
+                value: config.nUbatch,
+                onChanged: (v) => onChanged(config.copyWith(nUbatch: v)),
+              ),
+            ),
+          ],
+        ),
+        DropdownButtonFormField<KvCacheType>(
+          initialValue: config.kvTypeK,
+          decoration: const InputDecoration(
+            labelText: 'KV cache',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(
+                value: KvCacheType.f16, child: Text('FP16 (12,29 KB/token)')),
+            DropdownMenuItem(
+                value: KvCacheType.q8_0, child: Text('Q8_0 (6,53 KB/token)')),
+          ],
+          onChanged: (t) {
+            if (t != null) {
+              onChanged(config.copyWith(kvTypeK: t, kvTypeV: t));
+            }
+          },
         ),
         _BoolTile(
           label: 'cache_prompt',
-          subtitle: 'amplifica divergência entre execuções — off nas corridas de verificação',
+          subtitle: 'reutiliza o prefixo KV (essencial com deferred tools)',
           value: config.cachePrompt,
           onChanged: (v) => onChanged(config.copyWith(cachePrompt: v)),
         ),
         _BoolTile(
-          label: 'enableThinking',
-          subtitle: 'modo thinking do chat template (ON p/ tool-use complexo)',
-          value: config.enableThinking,
-          onChanged: (v) => onChanged(config.copyWith(enableThinking: v)),
+          label: 'flash_attn',
+          subtitle: 'Flash Attention (Metal/CPU)',
+          value: config.flashAttn,
+          onChanged: (v) => onChanged(config.copyWith(flashAttn: v)),
+        ),
+        const SizedBox(height: 8),
+        Text('Multimodal', style: Theme.of(context).textTheme.labelLarge),
+        _IntField(
+          label: 'image_max_tokens',
+          value: config.imageMaxTokens,
+          hint: '1024; baixa para 512 se o prefill for lento',
+          onChanged: (v) => onChanged(config.copyWith(imageMaxTokens: v)),
+        ),
+        _DoubleSlider(
+          label: 'video_fps',
+          value: config.videoFps,
+          min: 1,
+          max: 4,
+          divisions: 6,
+          onChanged: (v) => onChanged(config.copyWith(videoFps: v)),
+        ),
+        const SizedBox(height: 8),
+        Text('Áudio (LiquidCodec)',
+            style: Theme.of(context).textTheme.labelLarge),
+        _DoubleSlider(
+          label: 'audio_temperature',
+          value: config.audioTemperature,
+          min: 0,
+          max: 2,
+          divisions: 40,
+          onChanged: (v) => onChanged(config.copyWith(audioTemperature: v)),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _IntField(
+                label: 'audio_top_k',
+                value: config.audioTopK,
+                onChanged: (v) => onChanged(config.copyWith(audioTopK: v)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _IntField(
+                label: 'audio_window',
+                value: config.audioWindow,
+                onChanged: (v) => onChanged(config.copyWith(audioWindow: v)),
+              ),
+            ),
+          ],
+        ),
+        _DoubleSlider(
+          label: 'audio_repetition_penalty',
+          value: config.audioRepeatPenalty,
+          min: 1,
+          max: 1.5,
+          divisions: 50,
+          onChanged: (v) =>
+              onChanged(config.copyWith(audioRepeatPenalty: v)),
+        ),
+        _BoolTile(
+          label: 'suppress_mixed',
+          subtitle: 'ASR: não emitir <|mixed_start|>',
+          value: config.suppressMixed,
+          onChanged: (v) => onChanged(config.copyWith(suppressMixed: v)),
+        ),
+        _BoolTile(
+          label: 'suppress_audio_out',
+          subtitle: 'ASR: não emitir áudio de saída',
+          value: config.suppressAudioOut,
+          onChanged: (v) => onChanged(config.copyWith(suppressAudioOut: v)),
         ),
       ],
     );
@@ -337,7 +438,9 @@ class _DoubleSlider extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
+            Expanded(
+                child: Text(label,
+                    style: Theme.of(context).textTheme.bodySmall)),
             Text(value.toStringAsFixed(3),
                 style: Theme.of(context).textTheme.bodySmall),
           ],

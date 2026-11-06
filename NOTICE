@@ -1,0 +1,18 @@
+offline-ai-mobile
+Copyright (c) 2026 Frederico Kluser
+
+O código deste repositório é licenciado sob a licença MIT (ver LICENSE).
+
+Os pesos da família Liquid AI LFM3 e dos decisores d1 NÃO são cobertos pela
+MIT. São distribuídos sob a LFM Open License v1.0, disponível em
+https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE e no repositório
+https://github.com/frederico-kluser/lfm3-mobile-models (ficheiro LICENSE,
+SHA-256 4d28ca14dedc0b3d0fcc2b3339f0e79931faa33874f3d24f522183a8fc70068c).
+
+A LFM Open License v1.0 é Apache-2.0-like, com concessão de patentes, mas o
+§5 limita o uso comercial a organizações cujo grupo empresarial tenha receita
+anual inferior a 10 000 000 USD. Acima desse limiar é necessária uma licença
+comercial da Liquid AI.
+
+O modelo d1-omni-600M é um artefacto LFM2 legado, não LFM3, e é incluído
+apenas como fallback de baixa RAM.

@@ -1,23 +1,25 @@
-/// Tela 1 — Prompts: editor de system/user prompt, modo de execução
-/// (LLM MiniCPM5-2B | Laya decisor), parâmetros essenciais, saída,
-/// métricas (tokens, latência, stop_reason, fingerprint) e histórico de
-/// [RunRecord] com cópia de JSON e comparação golden ([diffRuns]).
+/// Ecrã 1 — Prompts: banco de testes dos modelos geradores LFM3.
+///
+/// System/user prompt, anexos imagem/vídeo/áudio, perfil de amostragem,
+/// raciocínio `<think>` separado, métricas, fingerprint e histórico com
+/// comparação golden.
 library;
 
 import 'package:flutter/material.dart';
 
-import '../domain/laya_types.dart';
+import '../agent/lfm3_chat.dart';
 import '../domain/llm_config.dart';
+import '../domain/media_attachment.dart';
 import '../domain/run_record.dart';
 import '../domain/templates.dart';
 import '../engines/llm_engine.dart';
+import '../services/model_registry.dart';
 import '../services/store.dart';
 import 'app_services.dart';
+import 'attachment_picker.dart';
 import 'common.dart';
 import 'history_page.dart';
 import 'llm_settings_page.dart';
-
-enum RunMode { llm, laya }
 
 class PromptsTab extends StatefulWidget {
   const PromptsTab({super.key, required this.store});
@@ -34,20 +36,21 @@ class _PromptsTabState extends State<PromptsTab> {
   late final TextEditingController _userCtrl =
       TextEditingController(text: widget.store.userPrompt);
 
-  RunMode _mode = RunMode.llm;
   late LlmConfig _config = widget.store.llmConfig;
+  final List<MediaAttachment> _attachments = [];
+  final AttachmentPicker _picker = const AttachmentPicker();
   bool _running = false;
 
   String _output = '';
+  String _thinking = '';
   String _stopReason = '—';
   int _promptTokens = 0;
   int _outputTokens = 0;
+  int _thinkingTokens = 0;
   int _latencyMs = 0;
   String _signature = '—';
-
   List<RunRecord> _history = const [];
 
-  /// Âncora do cartão Resultado (para auto-scroll após executar).
   final GlobalKey _resultKey = GlobalKey();
 
   @override
@@ -66,28 +69,44 @@ class _PromptsTabState extends State<PromptsTab> {
     super.dispose();
   }
 
-  bool get _llmInstalled => AppServices.instance.llmModelPath != null;
-  bool get _layaInstalled =>
-      AppServices.instance.layaModelPath != null &&
-      AppServices.instance.layaTokenizerPath != null;
+  bool get _hasImage => _attachments.any((a) => a.kind == MediaKind.image);
+  bool get _hasVideo => _attachments.any((a) => a.kind == MediaKind.video);
+  bool get _hasAudio => _attachments.any((a) => a.kind == MediaKind.audio);
 
-  List<TypedQuestion> get _layaQuestions {
-    final shared = AppServices.instance.layaQuestions;
-    if (shared.isNotEmpty) return shared;
-    final id = widget.store.selectedTemplateId;
-    for (final t in kLayaTemplates) {
-      if (t.id == id) return t.questions;
-    }
-    return kLayaTemplates.first.questions;
+  ModelBundle? get _bundle => AppServices.instance.generatorFor(
+        hasImage: _hasImage,
+        hasVideo: _hasVideo,
+        hasAudio: _hasAudio,
+      );
+
+  bool get _modalityOk {
+    final b = _bundle;
+    if (b == null) return false;
+    if (_hasAudio) return b.supportsAudio;
+    if (_hasVideo) return b.supportsVideo;
+    if (_hasImage) return b.supportsVision;
+    return true;
   }
 
-  /// Nome do template Laya ativo (evita dependência escondida entre abas).
-  String get _activeTemplateName {
-    final id = widget.store.selectedTemplateId;
-    for (final t in kLayaTemplates) {
-      if (t.id == id) return t.name;
+  Future<void> _addAttachment(MediaKind kind) async {
+    try {
+      final a = await _picker.pick(kind);
+      if (a == null) return;
+      setState(() => _attachments.add(a));
+    } catch (e) {
+      if (mounted) showSnack(context, 'Falha ao escolher ficheiro: $e', error: true);
     }
-    return kLayaTemplates.first.name;
+  }
+
+  void _applyTemplate(Lfm3PromptTemplate t) {
+    setState(() {
+      _systemCtrl.text = t.systemPrompt;
+      _userCtrl.text = t.userPrompt;
+      _config = _config.copyWith(enableThinking: t.enableThinking);
+      _attachments.clear();
+      _output = '';
+      _thinking = '';
+    });
   }
 
   Future<void> _run() async {
@@ -104,6 +123,22 @@ class _PromptsTabState extends State<PromptsTab> {
       showSnack(context, 'Configuração inválida: ${problems.first}', error: true);
       return;
     }
+    final bundle = _bundle;
+    if (bundle == null) {
+      showSnack(context,
+          'Nenhum modelo LFM3 instalado. Descarrega um bundle na aba Modelos.',
+          error: true);
+      return;
+    }
+    if (!_modalityOk) {
+      showSnack(
+        context,
+        '${bundle.label} não suporta os anexos escolhidos. Usa LFM3-VL-2B '
+        '(imagem/vídeo), LFM3-Audio-2B (áudio) ou LFM3-Omni-2B (tudo).',
+        error: true,
+      );
+      return;
+    }
     await widget.store.saveUserPrompt(_userCtrl.text);
     await widget.store.saveSystemPrompt(_systemCtrl.text);
     await widget.store.saveLlmConfig(_config);
@@ -111,17 +146,91 @@ class _PromptsTabState extends State<PromptsTab> {
     setState(() {
       _running = true;
       _output = '';
+      _thinking = '';
       _stopReason = '—';
       _promptTokens = 0;
       _outputTokens = 0;
+      _thinkingTokens = 0;
       _latencyMs = 0;
       _signature = '—';
     });
     try {
-      if (_mode == RunMode.llm) {
-        await _runLlm(system, user);
-      } else {
-        await _runLaya(user);
+      final services = AppServices.instance;
+      final engine = await services.ensureLlm(bundle: bundle, config: _config);
+      final messages = [
+        if (system.isNotEmpty) ChatMessage('system', system),
+        ChatMessage('user', user),
+      ];
+      final media = [
+        for (final a in _attachments)
+          LlmMediaInput(kind: a.kind, path: a.path),
+      ];
+      final startedAt = DateTime.now();
+      final visible = StringBuffer();
+      final think = StringBuffer();
+      GenEnd? end;
+      await for (final ev in engine.generate(
+        messages: messages,
+        config: _config,
+        media: media,
+      )) {
+        if (ev is GenDelta) {
+          if (ev.thinking) {
+            think.write(ev.text);
+          } else {
+            visible.write(ev.text);
+          }
+          if (mounted) {
+            setState(() {
+              _output = visible.toString();
+              _thinking = think.toString();
+            });
+          }
+        } else if (ev is GenEnd) {
+          end = ev;
+        }
+      }
+      final raw = '${think.isEmpty ? '' : '<think>${think.toString()}</think>'}$visible';
+      final parsed = Lfm3OutputParser.parse(raw);
+      final content = parsed.visibleContent;
+      final thinkingText = parsed.thinkingContent ?? think.toString();
+      final signature = runSignature(
+        modelId: engine.modelId,
+        prompt: user,
+        params: _config.toJson(),
+        systemPrompt: system.isEmpty ? null : system,
+      );
+      final record = RunRecord(
+        id: '${signature}_${startedAt.microsecondsSinceEpoch}',
+        startedAt: startedAt,
+        kind: 'lfm3',
+        modelId: engine.modelId,
+        prompt: user,
+        systemPrompt: system.isEmpty ? null : system,
+        params: {
+          ..._config.toJson(),
+          'bundle': bundle.id,
+          'media': [for (final a in _attachments) a.toJson()],
+        },
+        output: content,
+        promptTokens: end?.promptTokens ?? 0,
+        outputTokens: end?.outputTokens ?? 0,
+        latencyMs: end?.latencyMs ?? 0,
+        signature: signature,
+        stopReason: end?.stopReason ?? 'aborted',
+      );
+      await _finishRun(record);
+      if (mounted) {
+        setState(() {
+          _output = content;
+          _thinking = thinkingText;
+          _stopReason = end?.stopReason ?? 'aborted';
+          _promptTokens = end?.promptTokens ?? 0;
+          _outputTokens = end?.outputTokens ?? 0;
+          _thinkingTokens = end?.thinkingTokens ?? 0;
+          _latencyMs = end?.latencyMs ?? 0;
+          _signature = signature;
+        });
       }
     } catch (e) {
       if (mounted) showSnack(context, 'Erro na execução: $e', error: true);
@@ -130,154 +239,12 @@ class _PromptsTabState extends State<PromptsTab> {
     }
   }
 
-  Future<void> _runLlm(String system, String user) async {
-    final services = AppServices.instance;
-    final modelPath = services.llmModelPath;
-    if (modelPath == null) {
-      showSnack(context,
-          'Modelo GGUF não instalado. Descarrega o GGUF na aba Modelos.',
-          error: true);
-      return;
-    }
-    final engine =
-        await services.ensureLlm(modelPath: modelPath, config: _config);
-    final messages = [
-      if (system.isNotEmpty) ChatMessage('system', system),
-      ChatMessage('user', user),
-    ];
-    final buffer = StringBuffer();
-    final startedAt = DateTime.now();
-    GenEnd? endOrNull;
-    await for (final ev in engine.generate(messages: messages, config: _config)) {
-      if (ev is GenDelta) {
-        buffer.write(ev.text);
-        if (mounted) setState(() => _output = buffer.toString());
-      } else if (ev is GenEnd) {
-        endOrNull = ev;
-      }
-    }
-    final output = buffer.toString();
-    final end = endOrNull ??
-        GenEnd(
-          promptTokens: await engine.countTokens(user),
-          outputTokens: 0,
-          latencyMs: 0,
-          stopReason: 'aborted',
-        );
-    final signature = runSignature(
-      modelId: engine.modelId,
-      prompt: user,
-      params: _config.toJson(),
-      systemPrompt: system.isEmpty ? null : system,
-    );
-    final record = RunRecord(
-      id: '${signature}_${startedAt.microsecondsSinceEpoch}',
-      startedAt: startedAt,
-      kind: 'llm',
-      modelId: engine.modelId,
-      prompt: user,
-      systemPrompt: system.isEmpty ? null : system,
-      params: _config.toJson(),
-      output: output,
-      promptTokens: end.promptTokens,
-      outputTokens: end.outputTokens,
-      latencyMs: end.latencyMs,
-      signature: signature,
-      stopReason: end.stopReason,
-    );
-    await _finishRun(record);
-    if (mounted) {
-      setState(() {
-        _output = output;
-        _stopReason = end.stopReason;
-        _promptTokens = end.promptTokens;
-        _outputTokens = end.outputTokens;
-        _latencyMs = end.latencyMs;
-        _signature = signature;
-      });
-    }
-  }
-
-  Future<void> _runLaya(String user) async {
-    final services = AppServices.instance;
-    final modelPath = services.layaModelPath;
-    final tokenizerPath = services.layaTokenizerPath;
-    if (modelPath == null || tokenizerPath == null) {
-      showSnack(context,
-          'Kit ONNX do Laya não instalado. Descarrega o kit na aba Modelos.',
-          error: true);
-      return;
-    }
-    final engine = await services.ensureLaya(
-      modelPath: modelPath,
-      tokenizerPath: tokenizerPath,
-      config: widget.store.layaConfig,
-    );
-    final questions = _layaQuestions;
-    final request = LayaRequest(state: user, questions: questions);
-    final startedAt = DateTime.now();
-    final response = await engine.decide(request);
-    final output = _summarize(response);
-    final signature = runSignature(
-      modelId: engine.modelId,
-      prompt: user,
-      params: {
-        'laya_config': widget.store.layaConfig.toJson(),
-        'questions': [for (final q in questions) q.toJson()],
-      },
-    );
-    final record = RunRecord(
-      id: '${signature}_${startedAt.microsecondsSinceEpoch}',
-      startedAt: startedAt,
-      kind: 'laya',
-      modelId: engine.modelId,
-      prompt: user,
-      params: request.toJson(),
-      output: output,
-      promptTokens: response.inputTokens,
-      outputTokens: response.outputTokens,
-      latencyMs: response.latencyMs,
-      signature: signature,
-      stopReason: 'decided',
-    );
-    await _finishRun(record);
-    if (mounted) {
-      setState(() {
-        _output = output;
-        _stopReason = 'decided';
-        _promptTokens = response.inputTokens;
-        _outputTokens = response.outputTokens;
-        _latencyMs = response.latencyMs;
-        _signature = signature;
-      });
-    }
-  }
-
-  String _summarize(LayaResponse response) {
-    final buf = StringBuffer();
-    for (final e in response.answers.entries) {
-      final a = e.value;
-      buf.writeln('${e.key}: ${describeAnswer(a)}');
-      final probs = a.probabilities.entries.toList()
-        ..sort((x, y) => y.value.compareTo(x.value));
-      buf.writeln(
-          '  probabilities: ${probs.map((p) => '${p.key}=${p.value.toStringAsFixed(3)}').join(' | ')}');
-      buf.writeln('  confidence=${a.confidence.toStringAsFixed(3)} · '
-          'answer_confidence=${a.answerConfidence.toStringAsFixed(3)} · '
-          'act_probability=${a.actProbability.toStringAsFixed(3)}');
-    }
-    buf.writeln('usage: input=${response.inputTokens} · '
-        'output=${response.outputTokens} · latency=${response.latencyMs} ms');
-    return buf.toString().trimRight();
-  }
-
   Future<void> _finishRun(RunRecord record) async {
     await widget.store.addRun(record);
     if (!mounted) return;
     setState(() => _history = widget.store.runs);
   }
 
-  /// Executa e traz o cartão Resultado para a vista (posição de primazia).
   Future<void> _runAndScroll() async {
     await _run();
     if (!mounted || !context.mounted) return;
@@ -291,7 +258,6 @@ class _PromptsTabState extends State<PromptsTab> {
     }
   }
 
-  /// Abre as Definições do LLM (progressive disclosure) e aplica o resultado.
   Future<void> _openSettings() async {
     final updated = await LlmSettingsPage.open(context, _config);
     if (!mounted || updated == null) return;
@@ -299,14 +265,32 @@ class _PromptsTabState extends State<PromptsTab> {
     await widget.store.saveLlmConfig(updated);
   }
 
-
   @override
   Widget build(BuildContext context) {
     final services = AppServices.instance;
+    final bundle = _bundle;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const SectionHeader('Prompts'),
+        DropdownButtonFormField<String>(
+          initialValue: null,
+          decoration: const InputDecoration(
+            labelText: 'Template de prompt',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            for (final t in kLfm3PromptTemplates)
+              DropdownMenuItem(value: t.id, child: Text(t.name)),
+          ],
+          onChanged: (id) {
+            if (id == null) return;
+            final t = kLfm3PromptTemplates.firstWhere((t) => t.id == id);
+            _applyTemplate(t);
+          },
+        ),
+        const SizedBox(height: 8),
         TextField(
           controller: _systemCtrl,
           maxLines: 3,
@@ -327,33 +311,66 @@ class _PromptsTabState extends State<PromptsTab> {
             border: OutlineInputBorder(),
           ),
         ),
-        const SectionHeader('Modo'),
-        SegmentedButton<RunMode>(
-          segments: const [
-            ButtonSegment(
-                value: RunMode.llm, label: Text('LLM MiniCPM5-2B')),
-            ButtonSegment(value: RunMode.laya, label: Text('Laya (decisor)')),
-          ],
-          selected: {_mode},
-          onSelectionChanged: (s) => setState(() => _mode = s.first),
+        const SizedBox(height: 8),
+        AttachmentButtons(onPick: _addAttachment),
+        AttachmentStrip(
+          attachments: _attachments,
+          onRemove: (i) => setState(() => _attachments.removeAt(i)),
         ),
-        if (_mode == RunMode.laya)
-          InfoBanner(
-            'Template ativo: "$_activeTemplateName" '
-            '(${_layaQuestions.length} perguntas tipadas) — o user prompt é o '
-            '`state`; edita as perguntas no separador Laya.',
-            icon: Icons.rule,
+        if (_attachments.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: InfoBanner(
+              _modalityOk
+                  ? 'Anexos compatíveis com ${bundle?.label ?? 'o modelo ativo'}.'
+                  : 'O modelo ativo não suporta estes anexos. Usa LFM3-VL-2B '
+                      '(imagem/vídeo), LFM3-Audio-2B (áudio) ou LFM3-Omni-2B.',
+              icon: _modalityOk ? Icons.perm_media : Icons.warning_amber,
+              color: _modalityOk ? null : Colors.red,
+            ),
           ),
-        if (_mode == RunMode.llm && !_llmInstalled)
+        SectionHeader('Modelo',
+            trailing: TextButton.icon(
+              onPressed: _openSettings,
+              icon: const Icon(Icons.tune, size: 18),
+              label: const Text('Configuração'),
+            )),
+        if (bundle == null)
           const InfoBanner(
-            'Modelo MiniCPM5-2B (GGUF) não instalado. '
-            'Descarrega o GGUF na aba Modelos.',
+            'Nenhum modelo gerador instalado. Descarrega LFM3-1.7B (texto) '
+            'ou um VL/Audio/Omni na aba Modelos.',
             icon: Icons.warning_amber,
-          ),
-        if (_mode == RunMode.laya && !_layaInstalled)
-          const InfoBanner(
-            'Kit ONNX do Laya não instalado. Descarrega o kit na aba Modelos.',
-            icon: Icons.warning_amber,
+          )
+        else
+          Card(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(bundle.label,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      CapabilityChip('texto'),
+                      if (bundle.supportsThinking) CapabilityChip('think'),
+                      if (bundle.supportsVision) CapabilityChip('visão'),
+                      if (bundle.supportsVideo) CapabilityChip('vídeo 2 fps'),
+                      if (bundle.supportsAudio) CapabilityChip('áudio 16k/24k'),
+                      if (bundle.supportsTools) CapabilityChip('tools'),
+                      CapabilityChip(bundle.sizeLabel),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         SectionHeader(
           'Parâmetros (resumo)',
@@ -371,12 +388,14 @@ class _PromptsTabState extends State<PromptsTab> {
               spacing: 8,
               runSpacing: 4,
               children: [
+                _ParamChip('perfil', _config.profile.label),
                 _ParamChip('temperature', _config.temperature.toStringAsFixed(3)),
+                _ParamChip('top_k', '${_config.topK}'),
                 _ParamChip('min_p', _config.minP.toStringAsFixed(3)),
                 _ParamChip('maxTokens', '${_config.maxTokens}'),
                 _ParamChip('seed', '${_config.seed}'),
                 _ParamChip('thinking', _config.enableThinking ? 'ON' : 'OFF'),
-                _ParamChip('DRY', _config.dryEnabled ? 'ligado' : 'desligado'),
+                _ParamChip('KV', _config.kvTypeK.wire),
               ],
             ),
           ),
@@ -401,12 +420,27 @@ class _PromptsTabState extends State<PromptsTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (_thinking.isNotEmpty)
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: Text('Raciocínio <think> ($_thinkingTokens tokens)',
+                        style: Theme.of(context).textTheme.labelLarge),
+                    children: [
+                      SelectableText(
+                        _thinking,
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12),
+                      ),
+                    ],
+                  ),
                 SelectableText(
                   _output.isEmpty ? 'sem saída' : _output,
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                 ),
                 const Divider(height: 16),
-                MetricRow('tokens in / out', '$_promptTokens / $_outputTokens'),
+                MetricRow('tokens in / out',
+                    '$_promptTokens / $_outputTokens'),
+                MetricRow('thinking tokens', '$_thinkingTokens'),
                 MetricRow('latência', '$_latencyMs ms'),
                 MetricRow('stop_reason', _stopReason),
                 MetricRow('fingerprint da execução', _signature),
@@ -429,19 +463,17 @@ class _PromptsTabState extends State<PromptsTab> {
             },
           ),
         ),
-        services.llm == null && services.laya == null
-            ? const InfoBanner(
-                'Motores ainda não ligados a esta build — as execuções '
-                'mostram erro claro em vez de rebentar.',
-                icon: Icons.info_outline,
-              )
-            : const SizedBox.shrink(),
+        if (services.llm == null && services.d1 == null)
+          const InfoBanner(
+            'Motores ainda não ligados a esta build — as execuções mostram '
+            'erro claro em vez de rebentar.',
+            icon: Icons.info_outline,
+          ),
       ],
     );
   }
 }
 
-/// Chip-resumo de um parâmetro (leitura rápida; edição nas Definições).
 class _ParamChip extends StatelessWidget {
   const _ParamChip(this.label, this.value);
 
@@ -458,4 +490,3 @@ class _ParamChip extends StatelessWidget {
     );
   }
 }
-

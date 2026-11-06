@@ -1,5 +1,9 @@
 # Laya — especificação de encode/decode do decisor tipado (model.onnx, fp32)
 
+> **LEGADO (2026-11-06):** o motor Laya foi substituído pelo d1-2B/d1-Omni-2B
+> (`lib/src/engines/d1_onnx_engine.dart`); ver `docs/d1-onnx-contract.md`.
+> Este documento fica apenas como histórico.
+
 Contrato exato do motor `LayaOnnxEngine` (`lib/src/engines/laya_engine_onnx.dart`) sobre o artefacto
 `tools/laya_artifact/` — **export fp32 do checkpoint oficial `convaiinnovations/laya-typed-decisions`**
 (Convai Innovations), gerado por `tools/laya_export_fp32.py`. Substitui o antigo kit 4-bit de

@@ -23,10 +23,13 @@ command -v flutter >/dev/null || die "flutter não está no PATH" \
 NEED_ANDROID=0; NEED_IOS=0
 
 # Presença de artefactos nativos
-if [ -f "android/app/src/main/jniLibs/arm64-v8a/libllama.so" ]; then
-  ok "jniLibs Android (libllama.so arm64 + x86_64)"
+if [ -f "android/app/src/main/jniLibs/arm64-v8a/libllama.so" ] \
+   && [ -f "android/app/src/main/jniLibs/arm64-v8a/libmtmd.so" ] \
+   && [ -f "android/app/src/main/jniLibs/x86_64/libllama.so" ] \
+   && [ -f "android/app/src/main/jniLibs/x86_64/libmtmd.so" ]; then
+  ok "jniLibs Android (libllama.so + libmtmd.so arm64/x86_64)"
 else
-  miss "jniLibs Android — necessário para flutter build apk"
+  miss "jniLibs Android — necessário para flutter build apk (libllama + libmtmd)"
   NEED_ANDROID=1
 fi
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -46,7 +49,7 @@ fi
 # Constrói o que falta (uma vez; depois é só flutter build)
 if [ $NEED_ANDROID -eq 1 ]; then
   echo "== llama.cpp Android (x86_64 + arm64-v8a) =="
-  [ -n "${ANDROID_HOME:-}" ] || die "ANDROID_HOME não definido" \
+  [ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ] || die "ANDROID_HOME não definido" \
     "instala Android SDK 36 + NDK 27.2 e exporta ANDROID_HOME"
   bash tools/llama_build.sh
 fi

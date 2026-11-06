@@ -32,15 +32,15 @@ class _BrowserTabState extends State<BrowserTab> {
   Widget build(BuildContext context) {
     final services = AppServices.instance;
     final hasLlm = services.llmModelPath != null;
-    final hasLaya = services.layaModelPath != null;
+    final hasD1 = services.activeD1Bundle != null;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const SectionHeader('Browser embutido (teste)'),
         const InfoBanner(
           'O browser abre em tela inteira. As ações são mandadas pelas '
-          'teclas flutuantes, pelo piloto Laya (decisão tipada) ou pelo '
-          'agente MiniCPM5-2B (tool calling).',
+          'teclas flutuantes, pelo piloto d1 (decisão tipada) ou pelo '
+          'agente LFM3 (tool calling).',
           icon: Icons.public,
         ),
         const SizedBox(height: 8),
@@ -55,20 +55,20 @@ class _BrowserTabState extends State<BrowserTab> {
           child: Column(
             children: [
               ListTile(
-                leading: Icon(hasLaya ? Icons.check_circle : Icons.circle_outlined,
-                    color: hasLaya ? Colors.green : null),
-                title: const Text('Piloto Laya (decisor tipado)'),
-                subtitle: Text(hasLaya
-                    ? 'Kit ONNX instalado — a tecla 🧭 decide o próximo passo.'
-                    : 'Kit Laya não instalado — descarrega na aba Modelos.'),
+                leading: Icon(hasD1 ? Icons.check_circle : Icons.circle_outlined,
+                    color: hasD1 ? Colors.green : null),
+                title: const Text('Piloto d1 (decisor tipado)'),
+                subtitle: Text(hasD1
+                    ? 'Decisor instalado — a tecla 🧭 decide o próximo passo.'
+                    : 'Decisor d1 não instalado — descarrega na aba Modelos.'),
               ),
               ListTile(
                 leading: Icon(hasLlm ? Icons.check_circle : Icons.circle_outlined,
                     color: hasLlm ? Colors.green : null),
-                title: const Text('Agente MiniCPM5-2B (tool calling)'),
+                title: const Text('Agente LFM3 (tool calling)'),
                 subtitle: Text(hasLlm
-                    ? 'GGUF instalado — a tecla 🤖 conduz o browser com tools.'
-                    : 'GGUF não instalado — descarrega na aba Modelos.'),
+                    ? 'Modelo instalado — a tecla 🤖 conduz o browser com tools.'
+                    : 'Modelo LFM3 não instalado — descarrega na aba Modelos.'),
               ),
             ],
           ),
@@ -81,10 +81,10 @@ class _BrowserTabState extends State<BrowserTab> {
             child: Text(
               '• Teclas flutuantes = ações diretas (voltar, URL, clicar, '
               'digitar, rolar, mapa de elementos).\n'
-              '• Piloto Laya = System One tipado: escolhe a próxima ação '
+              '• Piloto d1 = System One tipado: escolhe a próxima ação '
               'entre candidatos concretos e tem gates de segurança '
               '(prompt injection, ações irreversíveis não autorizadas).\n'
-              '• Agente LLM = System Two: MiniCPM5-2B com tools browser_* '
+              '• Agente LFM3 = System Two: tool calling com tools browser_* '
               'e guardrails anti-loop.\n'
               '• Tudo passa pelo mesmo barramento de ações validado '
               '(refs estáveis + deteção de DOM desatualizado).',

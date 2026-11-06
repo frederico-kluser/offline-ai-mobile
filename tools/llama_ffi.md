@@ -1,86 +1,100 @@
-# tools/llama_ffi.md — como o build do llama.cpp foi feito
+# tools/llama_ffi.md — build e FFI do llama.cpp b12088
 
-Nota curta e reproduzível. O script canónico é **`tools/llama_build.sh`**
-(este ficheiro documenta o "porquê" e o que foi verificado).
+O script canónico é **`tools/llama_build.sh`** (Android) e
+**`tools/llama_build_ios.sh`** (iOS). Este ficheiro regista o "porquê" e o
+layout ABI que o `dart:ffi` espelha.
 
 ## Versão pinada
 
 | Item | Valor |
 |---|---|
-| llama.cpp | **tag `b11217`** (release mais recente à data do build; exige-se ≥ b10883 porque o MiniCPM5 é arquitetura/tokenizer novos) |
-| Commit | `c9064dded732d81f90b34e6b33d4fbd77cbfa058` |
-| Clone | `git clone --depth 1 --branch b11217 https://github.com/ggml-org/llama.cpp tools/llama.cpp` |
-| Android NDK | `27.2.12479018` (`/home/ondokai/Android/Sdk/ndk/27.2.12479018`) |
-| CMake | `3.22.1` (kit do Android SDK, `bin/cmake` + `bin/ninja`) |
-| Toolchain | `build/cmake/android.toolchain.cmake` do NDK |
-| ABIs | `x86_64` (emulador) e `arm64-v8a` (device) |
-| Plataforma | `-DANDROID_PLATFORM=android-26` (API mínima para `dlopen` por nome de ficheiro) |
+| llama.cpp | **tag `b12088`** (2026-11-04) |
+| Mínimo LFM3 | `b11938` (primeira tag com `LLM_ARCH_LFM3`) |
+| Mínimo vídeo LFM3 | `b11960` (`MTMD_VIDEO_TEMPLATE_LFM3` / `_LFM3_OMNI`) |
+| Fix JSON + thinking | `b12005` / PR #31374 (commit `3c809f44`) |
+| Vídeo libmtmd | PR #31283 / commit `d4f1b18` |
+| NVFP4 | PR #31608 |
+| Android NDK | `27.2.12479018` |
+| CMake | `3.22.1` (kit do SDK) |
+| ABIs | `arm64-v8a` + `x86_64` |
+| Plataforma | `android-28` |
+| iOS | `iphoneos` + `iphonesimulator`, arm64, mínimo 16.0 |
 
-Confirmação do suporte MiniCPM5 nesta tag: tokenizer `minicpm5`
-(`src/llama-vocab.cpp`, `LLAMA_VOCAB_PRE_TYPE_MINICPM5`) e parser de chat
-`common/parsers/minicpm5.cpp`.
+Porque b12088 e não o mínimo: inclui o fix da gramática JSON com
+`enable_thinking=false` (#31374), o vídeo LFM3 (#31283) e NVFP4 (#31608).
+A issue #31150 (router + concorrência do `/v1/systemone`) continua aberta —
+não usar `-np >= 2` com o decisor.
 
-## Flags de build (todas no script)
+## Flags de build
 
 ```
--DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake
--DANDROID_ABI=x86_64 | arm64-v8a
--DANDROID_PLATFORM=android-26
--DCMAKE_BUILD_TYPE=Release
--DBUILD_SHARED_LIBS=ON        # libllama.so + libggml*.so
--DGGML_NATIVE=OFF             # sem -march do host (build reproduzível)
--DGGML_OPENMP=OFF             # sem libomp no Android; usa o threadpool do ggml
+-DBUILD_SHARED_LIBS=ON
+-DGGML_NATIVE=OFF
+-DGGML_OPENMP=OFF
+-DLLAMA_CURL=OFF
+-DLLAMA_BUILD_COMMON=ON
+-DLLAMA_BUILD_MTMD=ON
 -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=OFF
 -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF
--DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_MTMD=OFF
 ```
 
-Alvo compilado: `cmake --build . --target llama`. As `.so` partilhadas saem
-em `<build>/bin/` e são copiadas para
-`android/app/src/main/jniLibs/<abi>/{libllama.so,libggml.so,libggml-base.so,libggml-cpu.so}`
-(empacotadas pela APK; `android/app/build.gradle(.kts)` declara
-`sourceSets { main { jniLibs.srcDirs ... } }`).
+Alvos: `llama` + `mtmd`. As `.so` saem em `<build>/bin/`:
+`libllama.so`, `libmtmd.so`, `libggml*.so`; são copiadas para
+`android/app/src/main/jniLibs/<abi>/`.
 
-## FFI (lib/src/engines/llm_engine_llama.dart)
+## Structs (ABI b12088)
 
-- `DynamicLibrary.open('libllama.so')` por NOME de ficheiro — obrigatório no
-  Android (as libs entram pelo linker da app; `DynamicLibrary.process()` não
-  as enxerga).
-- **Sem `package:ffi`**: o `pubspec.yaml` não o inclui e não foi alterado; o
-  `calloc`/`free` vêm do libc ligados por `dart:ffi`. Se algum dia se quiser
-  `package:ffi`, basta adicioná-lo ao pubspec — o motor não o usa.
+O layout é copiado de `include/llama.h`. O ponto crítico é o
+`llama_context_params`: entre `type_v` e `abort_callback` existe
+
+```c
+size_t moe_cache_size; // device cache para experts (0 = desligado)
+```
+
+Sem este campo (ausente nas builds antigas) todos os campos seguintes ficam
+desalinhados e o `llama_init_from_model` rebenta. O `_ContextParams` do Dart
+inclui `@Uint64() moeCacheSize` na posição correta. O resto dos campos
+(`n_ctx`, `n_batch`, `n_ubatch`, `n_seq_max`, `n_threads`, `type_k`,
+`type_v`, `flash_attn_type`, `samplers`, `ctx_other`) segue o header.
+
+## libmtmd (mtmd.h b12088)
+
+O módulo `libmtmd` é obrigatório para LFM3-VL/Audio/Omni:
+
+- `mtmd_context_params_default` → `mtmd_init_from_file(mmproj, llama_model, params)`;
+- `mtmd_support_vision` / `mtmd_support_audio` / `mtmd_get_audio_sample_rate`;
+- `mtmd_bitmap_init(nx, ny, RGBRGB…)` e `mtmd_bitmap_init_from_audio(n, F32)`;
+- `mtmd_bitmap_set_id` (cache por SHA-256), `set_mergeable`/`set_is_video`
+  para frames de vídeo;
+- `mtmd_tokenize` com o marcador `<__media__>`;
+- `mtmd_helper_eval_chunks(mtmd, llama_ctx, chunks, n_past, seq, n_batch,
+  logits_last, &new_n_past)`.
+
+O `_Worker` do motor guarda `mtmd_context*` e liberta-o antes do modelo. Os
+frames de vídeo são extraídos a 2 fps pelo canal nativo
+`offline_ai_mobile/media` e enviados como RGB; o áudio é WAV PCM16/F32
+convertido para 16 kHz.
+
+## FFI
+
+- `DynamicLibrary.open('libllama.so')` / `libmtmd.so` no Android;
+  `DynamicLibrary.process()` no iOS/macOS.
+- Sem `package:ffi` no motor llama (calloc/free do libc); o módulo mtmd usa
+  `package:ffi` para `toNativeUtf8`.
 - Structs por valor (`llama_model_params`, `llama_context_params`,
-  `llama_batch`, `llama_sampler_chain_params`) passam-se diretamente — o
-  `dart:ffi` atual (Dart 3.13) implementa o ABI C completo (verificado em
-  runtime com structs de 56 B por argumento e 104 B de retorno `sret`).
-- API da tag `b11217` (não depreciada): `llama_model_load_from_file`,
-  `llama_init_from_model`, `llama_model_free`, `llama_memory_clear`,
-  `llama_memory_seq_rm`, `llama_vocab_*`, `llama_batch_init/free`,
-  `llama_decode`, `llama_sampler_*`. Subconjunto ligado: backend_init,
-  model/context default params + init/free, get_vocab, model_n_embd, n_ctx,
-  set_n_threads, get_memory, memory_clear, memory_seq_rm, tokenize,
-  token_to_piece, vocab_n_tokens, vocab_eos, vocab_is_eog, batch_init,
-  batch_free, decode, get_logits_ith, sampler_chain_init/add,
-  init_penalties, **init_dry**, init_top_k, init_top_p, init_min_p,
-  init_temp, init_dist, init_greedy, sampler_sample, sampler_accept,
-  sampler_free.
-- **DRY**: `llama_sampler_init_dry` EXISTE nesta tag (com a assinatura da
-  b11217: sem `n_ctx_train`; seq breakers por defeito `"\n" ":" "\"" "*"`).
-  É ligado defensivamente: se o símbolo faltar, o DRY é ignorado com aviso no
-  `GenEnd.error` (sem falha da geração).
-- `llama_sampler_sample` já faz `llama_sampler_accept` internamente — o
-  `accept` explícito é usado apenas para alimentar a cadeia com os tokens do
-  prompt (penalties/DRY corretos).
-- Ordem dos samplers: `LlmConfig.samplersOrder`
-  (`penalties;dry;top_k;top_p;min_p;temperature`) + terminal
-  `llama_sampler_init_dist(seed)`; com `temperature <= 0` o terminal é
-  `llama_sampler_init_greedy()` (`temp(0)` + `dist` não é definido).
-- Geração corre num **isolate** dedicado; abort por mensagem entre tokens →
-  `stopReason: 'aborted'`. 1 `GenDelta` por token + `GenEnd` final.
+  `llama_batch`, `llama_sampler_chain_params`, `mtmd_context_params`) passam
+  diretamente; o `dart:ffi` do Dart 3.13 implementa o ABI C.
+- Geração num **isolate** dedicado; abort por mensagem entre tokens.
+- Raciocínio `<think>` separado em `GenDelta.thinking`; teto
+  `maxThinkingTokens`.
 
-## Verificação do build
+## Verificação
 
-- `file android/app/src/main/jniLibs/*/*.so` → `ELF 64-bit ... x86-64` e
-  `ELF 64-bit ... aarch64` (4 libs por ABI).
-- `flutter analyze lib/src/engines/llm_engine_llama.dart` → *No issues found*.
-- Reexecutar tudo: `./tools/llama_build.sh` (idempotente; `--force` re-clona).
+```bash
+bash tools/llama_build.sh --force
+file android/app/src/main/jniLibs/*/*.so   # ELF 64-bit x86-64/aarch64
+flutter analyze lib/src/engines
+```
+
+Sem `libmtmd.so` o script falha de propósito: a app não deve arrancar com uma
+build que diz suportar VL/Audio/Omni mas não tem o projetor.

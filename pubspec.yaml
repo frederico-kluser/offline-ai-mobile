@@ -1,5 +1,5 @@
 name: offline_ai_mobile
-description: "App offline de teste de prompts com Laya (decisor tipado) e MiniCPM5-2B (LLM local), determinístico por defeito."
+description: "Laboratório offline móvel da suíte Liquid AI LFM3 (texto, visão, áudio, omni) e do decisor d1, com downloads verificados e guardrails determinísticos."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 2.0.0+1
 
 environment:
   sdk: ^3.13.4
@@ -40,13 +40,16 @@ dependencies:
   # Download de modelos (com progresso) e caminhos privados da app.
   http: ^1.2.2
   path_provider: ^2.1.5
-  # Persistência de configurações (Laya + LLM).
+  # Persistência de configurações (LFM3 + d1).
   shared_preferences: ^2.3.3
   onnxruntime_v2: ^1.23.2+2
   # Browser embutido (WebView controlada pela camada de ações — dossiê
   # pesquisas/2026-09-27-browser-embutido): UserScript AT_DOCUMENT_START +
   # bridge tipada Dart<->JS. Plano B documentado: webview_flutter 4.x.
   flutter_inappwebview: ^6.1.5
+  file_selector: ^1.1.0
+  ffi: ^2.2.0
+  fftea: ^1.5.0+1
 
 dev_dependencies:
   integration_test:
@@ -78,6 +81,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/audio/hello_pt.wav
+    - assets/video/red.mp4
+    - assets/video/red_audio.mp4
 
   # To add assets to your application, add an assets section, like this:
   # assets:

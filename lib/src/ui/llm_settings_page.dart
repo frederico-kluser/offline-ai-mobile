@@ -1,5 +1,5 @@
-/// Página "Definições do LLM" — a configuração completa do MiniCPM5-2B vive
-/// FORA do fluxo principal (progressive disclosure).
+/// Página "Definições do LLM" — a configuração completa do LFM3 vive FORA do
+/// fluxo principal (progressive disclosure).
 ///
 /// Devolve o [LlmConfig] editado via `Navigator.pop(context, config)`.
 library;
@@ -38,7 +38,7 @@ class _LlmSettingsPageState extends State<LlmSettingsPage> {
         title: const Text('Definições do LLM'),
         actions: [
           IconButton(
-            tooltip: 'Repor defaults determinísticos',
+            tooltip: 'Repor perfil de agente LFM3',
             icon: const Icon(Icons.restart_alt),
             onPressed: () => setState(() => _config = const LlmConfig()),
           ),
@@ -52,9 +52,10 @@ class _LlmSettingsPageState extends State<LlmSettingsPage> {
         padding: const EdgeInsets.all(16),
         children: [
           const InfoBanner(
-            'Defaults seguem a receita oficial anti-loop do MiniCPM5-2B '
-            '(temperature 1.0 · top_p 0.95 · min_p 0.0 · seed fixa · DRY '
-            'ligado). Valores fora destes aumentam o risco de loops.',
+            'Perfis oficiais LFM3: agente (temp 0.1 · top_k 50 · top_p 1.0 · '
+            'min_p 0 · repeat 1.1), matemática (temp 1.0 · top_k 20 · top_p '
+            '0.95), visão (temp 0.1), ASR/Omni (greedy). O KV cache cresce '
+            '12,29 KB/token em FP16 ou 6,53 KB/token em Q8_0.',
             icon: Icons.tune,
           ),
           const SizedBox(height: 8),
