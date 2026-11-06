@@ -51,9 +51,8 @@ void main() {
     'd1-2B ONNX decide noul sem gerar tokens',
     (tester) async {
       await tester.runAsync(() async {
-        final decoder =
-            await _download('onnx/decoder_q4f16.onnx', 274492);
-        await _download('onnx/decoder_q4f16.onnx_data', 1567474688);
+        final decoder = await _download('onnx/decoder_q4.onnx', 358945);
+        await _download('onnx/decoder_q4.onnx_data', 1741806592);
         final tokenizer = await _download('tokenizer.json', 17908258);
         final processor = await _download('processor_config.json', 1254);
         await _download('config.json', 2903);
@@ -63,7 +62,7 @@ void main() {
         await engine.load(
           paths: D1ModelPaths(
             decoderPath: decoder.path,
-            decoderDataPath: '${decoder.parent.path}/decoder_q4f16.onnx_data',
+            decoderDataPath: '${decoder.parent.path}/decoder_q4.onnx_data',
             tokenizerPath: tokenizer.path,
             processorConfigPath: processor.path,
           ),
