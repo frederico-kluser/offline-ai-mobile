@@ -478,7 +478,7 @@ final List<ModelBundle> kModelCatalog = [
     label: 'd1-Omni-2B-ONNX · q4 + visão/áudio (áudio + voz)',
     description:
         'Todas as primitivas + áudio 16 kHz e perguntas faladas. '
-        '2,39 GB de disco; ~2,65 GB de RAM. q4 evita o kernel int8 do q4f16.',
+        '2,21 GB de disco; ~2,65 GB de RAM. q4 evita o kernel int8 do q4f16.',
     family: ModelFamily.lfm3,
     kind: 'onnx',
     localDirName: 'models/d1-omni-2b-onnx-q4',
@@ -589,3 +589,4 @@ ModelBundle? _firstInstalledCapable(bool Function(ModelBundle) test) {
   }
   return null;
 }
+

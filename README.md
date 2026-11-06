@@ -78,7 +78,7 @@ Hugging Face oficial:
 | d1-2B Q4_K_M + mmproj Q8_0 | 1,30 GB | d1 GGUF (3 primitivas) |
 | d1-Omni-2B Q8_0 + mmproj Q8_0 | 2,17 GB | d1 áudio GGUF |
 | d1-2B-ONNX q4 + visão q8 | 1,96 GB | d1 completo (validado no iOS) |
-| d1-Omni-2B-ONNX q4 + visão/áudio | 2,39 GB | d1 completo + áudio |
+| d1-Omni-2B-ONNX q4 + visão/áudio | 2,21 GB | d1 completo + áudio |
 
 **Código:** MIT. **Pesos:** [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE)
 — Apache-2.0-like, com patentes, mas o §5 limita o uso comercial a
@@ -127,8 +127,9 @@ flutter test integration_test/real_d1_test.dart   --dart-define=REAL_D1=true  -d
 Resultados (2026-11-06): LFM3-1.7B `"Olá! Como posso ajudar você hoje?"`;
 LFM3-VL-2B `"Vermelho"` numa imagem vermelha; LFM3-Audio-2B transcreveu
 `"Olá, mundo! Este é um teste de áudio."`; d1-2B ONNX respondeu a `noul` de
-texto (38 tokens, 769 ms) e com imagem (46 tokens, 1093 ms). O mesmo
-LFM3-1.7B também gerou texto no **Android x86_64** (emulador lento, 137 s).
+texto (38 tokens, 769 ms), com imagem (46 tokens, 1093 ms) e d1-Omni com
+áudio falado (70 tokens, 1668 ms). O mesmo LFM3-1.7B também gerou texto no
+**Android x86_64** (emulador lento, 137 s).
 Detalhes e latências em
 [`docs/real-inference-validation.md`](docs/real-inference-validation.md).
 
@@ -153,3 +154,4 @@ Detalhes e latências em
   outputs e latências dos gates reais no iOS Simulator.
 - [`tools/llama_ffi.md`](tools/llama_ffi.md) — layout das structs e build.
 - [`pesquisas/`](pesquisas/) — dossiê de pesquisa com fontes.
+

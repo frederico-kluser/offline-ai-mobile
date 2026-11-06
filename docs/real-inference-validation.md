@@ -29,6 +29,7 @@ o modelo pode ser pré-carregado com `adb push` para
 | LFM3-Audio-2B | `LFM3-Audio-2B-Q4_K_M` + `mmproj-Q8_0` | transcrição exata: `"Olá, mundo! Este é um teste de áudio."` | 60/14 | 1087 ms |
 | d1-2B ONNX | `decoder_q4.onnx` + `vision_encoder_q8` | `noul` texto, `D1NoulAnswer`, 0 tokens gerados | 38/0 | 769 ms |
 | d1-2B ONNX | idem, com imagem | `noul` visual com `image_features` | 46/0 | 1093 ms |
+| d1-Omni ONNX | `decoder_q4` + `audio_encoder_fp16` | `noul` falado com `audio_features` | 70/0 | 1668 ms |
 | LFM3-1.7B | idem, **Android x86_64** | `"Olá! Como posso ajudar você hoje?"` | 37/10 | 137 s* |
 
 \* Emulador Android x86_64 sem dotprod/i8mm (CPU emulada): o tempo não é
@@ -58,5 +59,7 @@ caminho validado.
 - **Android com pesos reais**: o texto LFM3-1.7B correu no emulador x86_64
   (ver tabela); VL/áudio/d1 reais ainda não correram em Android. O emulador é
   lento e não representa um telefone arm64.
+- **d1-Omni imagens/vídeo** não foram exercitados com pesos reais; o gate
+  real cobriu texto e áudio (`audio_features`).
 - **Metal em device físico**: o simulador usa CPU; o gate Metal do llama.cpp
   continua a ser o runbook do iPhone físico.
