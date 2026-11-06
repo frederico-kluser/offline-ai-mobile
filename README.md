@@ -27,6 +27,8 @@ verifica SHA-256, retoma downloads por HTTP Range e instala atomicamente.
 | **Modelos LFM3** | perfilador de hardware (Tier 1/2/3), micro-benchmark real, catálogo de 11 bundles, download/verificação/remoção |
 | **Browser** | browser embutido controlado por teclas humanas, piloto d1 (System One) e agente LFM3 (tool calling), com gates de injeção/irreversibilidade |
 
+![Ecrã Prompts no iOS Simulator](docs/screenshots/ios-prompts.png)
+
 ## Arquitetura
 
 ```
