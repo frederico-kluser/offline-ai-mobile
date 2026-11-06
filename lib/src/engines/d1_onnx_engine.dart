@@ -505,17 +505,18 @@ Object _runOne({
   addInt('question_ids', prompt.questionIds, [1, n]);
   addInt('slot_positions', prompt.slotPositions, [prompt.slotPositions.length]);
   // O decoder oficial declara sempre estes inputs (mesmo sem mídia); o grafo
-  // exige o tensor, por isso passa-se shape [0,2048] quando não há features.
+  // exige o tensor e o ORT não aceita shape [0,2048], por isso usa-se uma
+  // linha zero quando não há features (o modelo ignora-a sem marcador).
   if (available.contains('image_features')) {
     inputs['image_features'] = OrtValueTensor.createTensorWithDataList(
-      imageFeatures,
-      [imageTokens, 2048],
+      imageFeatures.isEmpty ? List<double>.filled(2048, 0) : imageFeatures,
+      [imageFeatures.isEmpty ? 1 : imageTokens, 2048],
     );
   }
   if (available.contains('audio_features')) {
     inputs['audio_features'] = OrtValueTensor.createTensorWithDataList(
-      audioFeatures,
-      [audioTokens, 2048],
+      audioFeatures.isEmpty ? List<double>.filled(2048, 0) : audioFeatures,
+      [audioFeatures.isEmpty ? 1 : audioTokens, 2048],
     );
   }
 
