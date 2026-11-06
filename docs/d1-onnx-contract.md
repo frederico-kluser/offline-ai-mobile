@@ -116,6 +116,11 @@ span   = melhor (start,end) com end-start < 512 (texto) / 32 (number/date)
   stride 8.
 - Tokens especiais: `<|image|>`, `<|video|>`, `<|audio|>`, `<|audio_out|>`,
   `<|vision_start|>`, `<|vision_end|>`.
+- O processor expande **um marcador por token de feature** dentro de
+  `<|vision_start|>…<|vision_end|>`; o `scatter` do decoder exige
+  `indices.shape[:-1] == updates.shape[0]`. O `D1PromptBuilder` recebe
+  `mediaTokenCounts` e repete o marcador (4 tokens para uma imagem 64×64,
+  por exemplo).
 
 ## 7. Runtime
 

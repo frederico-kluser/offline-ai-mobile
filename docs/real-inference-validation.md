@@ -16,7 +16,9 @@ flutter test integration_test/real_d1_test.dart \
 ```
 
 Os testes são **opt-in**: sem o `--dart-define` ficam `SKIP`, para a suite
-normal não descarregar vários GB.
+normal não descarregar vários GB. No Android, o download do emulador é lento;
+o modelo pode ser pré-carregado com `adb push` para
+`app_flutter/models-real/` (foi o que se fez para o gate Android).
 
 ## Resultados
 
