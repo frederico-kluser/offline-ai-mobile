@@ -107,8 +107,8 @@ Requisitos: Flutter 3.47+, Android SDK 36/NDK 27.2, Xcode 27+.
 
 ```bash
 flutter analyze
-flutter test                 # 63+ testes de domínio, parser, guardrails, d1, download, hardware, UI
-flutter test integration_test -d <device>   # CT-01..CT-12 (SKIP sem modelos)
+flutter test                 # 69 testes de domínio, parser, guardrails, d1, download, hardware, UI
+flutter test integration_test -d <device>   # CT-01..CT-12 + hardware (SKIP sem modelos)
 ```
 
 Os cenários CT-01..CT-12 estão em
