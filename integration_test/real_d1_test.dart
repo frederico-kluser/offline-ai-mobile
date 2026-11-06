@@ -54,9 +54,6 @@ void main() {
         final decoder =
             await _download('onnx/decoder_q4f16.onnx', 274492);
         await _download('onnx/decoder_q4f16.onnx_data', 1567474688);
-        final vision =
-            await _download('onnx/vision_encoder_fp16.onnx', 104940);
-        await _download('onnx/vision_encoder_fp16.onnx_data', 379021312);
         final tokenizer = await _download('tokenizer.json', 17908258);
         final processor = await _download('processor_config.json', 1254);
         await _download('config.json', 2903);
@@ -67,7 +64,6 @@ void main() {
           paths: D1ModelPaths(
             decoderPath: decoder.path,
             decoderDataPath: '${decoder.parent.path}/decoder_q4f16.onnx_data',
-            visionEncoderPath: vision.path,
             tokenizerPath: tokenizer.path,
             processorConfigPath: processor.path,
           ),
