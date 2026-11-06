@@ -36,7 +36,20 @@ class D1AnswerVocabulary {
     return map;
   }
 
-  List<int> idsFor(String label) => _groups[_normalize(label)] ?? const [];
+  List<int> idsFor(String label) {
+    final variants = <String>{label};
+    final numeric = int.tryParse(label);
+    if (numeric != null) {
+      variants
+        ..add(numeric.toString().padLeft(2, '0'))
+        ..add(numeric.toString().padLeft(3, '0'));
+    }
+    final out = <int>{};
+    for (final v in variants) {
+      out.addAll(_groups[_normalize(v)] ?? const []);
+    }
+    return out.toList();
+  }
 
   static String _normalize(String s) {
     var t = s.trim().toLowerCase();

@@ -296,6 +296,51 @@ void main() {
       expect(r.box!.top, closeTo(0.5, 0.02));
     });
 
+    test('span usa o pointer parameter-free sobre hidden_states', () {
+      final q = const D1TextQuestion(id: 't', instructions: 'extrai');
+      final slots = [
+        D1SlotSpec(
+          questionId: 't',
+          type: D1QuestionType.textSpan,
+          field: 'span_start',
+          kind: D1SlotKind.spanStart,
+        ),
+        D1SlotSpec(
+          questionId: 't',
+          type: D1QuestionType.textSpan,
+          field: 'span_end',
+          kind: D1SlotKind.spanEnd,
+        ),
+      ];
+      // hidden [1,5,4]: 0=BOS, 1/2=state, 3/4=queries start/end.
+      final hidden = <double>[
+        0, 0, 0, 0,
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        10, 0, 0, 0,
+        0, 10, 0, 0,
+      ];
+      final r = decoder.decodeOne(
+        question: q,
+        prompt: prompt(
+          questionId: 't',
+          slots: slots,
+          positions: const [3, 4],
+          statePositions: const [0, 1, 2],
+          tokenStarts: const [0, 0, 5, 0, 6],
+          tokenEnds: const [1, 5, 10, 1, 11],
+        ),
+        logits: const [0, 0],
+        logitsShape: const [2, 1],
+        tokenizer: tok,
+        hiddenStates: hidden,
+        hiddenShape: const [1, 5, 4],
+        latencyMs: 1,
+      ) as D1TextAnswer;
+      expect(r.found, isTrue);
+      expect(r.text, isNotEmpty);
+    });
+
     test('span sem hidden_states lança D1UnsupportedPrimitive', () {
       final q = const D1TextQuestion(id: 't', instructions: 'extrai');
       final slots = [
