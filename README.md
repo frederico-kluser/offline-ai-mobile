@@ -109,13 +109,26 @@ Requisitos: Flutter 3.47+, Android SDK 36/NDK 27.2, Xcode 27+.
 
 ```bash
 flutter analyze
-flutter test                 # 69 testes de domínio, parser, guardrails, d1, download, hardware, UI
-flutter test integration_test -d <device>   # CT-01..CT-12 + hardware (SKIP sem modelos)
+flutter test                 # 77 testes de domínio, parser, guardrails, d1, mídia, download, hardware, UI
+flutter test integration_test -d <device>   # CT-01..CT-12 + hardware + arranque (SKIP sem modelos)
 ```
 
 Os cenários CT-01..CT-12 estão em
 [`integration_test/lfm3_e2e_test.dart`](integration_test/lfm3_e2e_test.dart) e
 em [`docs/ct-scenarios.md`](docs/ct-scenarios.md).
+
+### Inferência real (opt-in, iOS Simulator)
+
+```bash
+flutter test integration_test/real_lfm3_test.dart --dart-define=REAL_LFM3=true -d <sim>
+flutter test integration_test/real_d1_test.dart   --dart-define=REAL_D1=true  -d <sim>
+```
+
+Resultados (2026-11-06): LFM3-1.7B `"Olá! Como posso ajudar você hoje?"`;
+LFM3-VL-2B `"Vermelho"` numa imagem vermelha; LFM3-Audio-2B transcreveu
+`"Olá, mundo! Este é um teste de áudio."`; d1-2B ONNX respondeu a `noul` de
+texto (38 tokens, 769 ms) e com imagem (46 tokens, 1093 ms). Detalhes e
+latências em [`docs/real-inference-validation.md`](docs/real-inference-validation.md).
 
 ## Limitações honestas
 
@@ -134,5 +147,7 @@ em [`docs/ct-scenarios.md`](docs/ct-scenarios.md).
 - [`docs/d1-onnx-contract.md`](docs/d1-onnx-contract.md) — prompt, tensores e
   pós-processamento do d1.
 - [`docs/ct-scenarios.md`](docs/ct-scenarios.md) — matriz CT-01..CT-12.
+- [`docs/real-inference-validation.md`](docs/real-inference-validation.md) —
+  outputs e latências dos gates reais no iOS Simulator.
 - [`tools/llama_ffi.md`](tools/llama_ffi.md) — layout das structs e build.
 - [`pesquisas/`](pesquisas/) — dossiê de pesquisa com fontes.

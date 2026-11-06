@@ -1,0 +1,53 @@
+# Validação de inferência real (iOS Simulator)
+
+Executada em 2026-11-06 num Mac mini M1 (16 GB), **iPhone 18 Pro Simulator**
+(iOS 27.0, arm64), com os pesos oficiais descarregados do release
+`models-lfm3-suite-v1` e do Hugging Face. O simulador corre em **CPU**
+(`gpuLayers=0`); o Metal do simulador não é usado.
+
+## Comandos
+
+```bash
+flutter test integration_test/real_lfm3_test.dart \
+  --dart-define=REAL_LFM3=true -d <sim-udid>
+
+flutter test integration_test/real_d1_test.dart \
+  --dart-define=REAL_D1=true -d <sim-udid>
+```
+
+Os testes são **opt-in**: sem o `--dart-define` ficam `SKIP`, para a suite
+normal não descarregar vários GB.
+
+## Resultados
+
+| Motor | Artefacto | Resultado | pt/ot | Latência |
+|---|---|---|---|---|
+| LFM3-1.7B | `LFM3-1.7B-QAD-Q4_0.gguf` | `"Olá! Como posso ajudar você hoje?"` | 37/10 | 380 ms |
+| LFM3-VL-2B | `LFM3-VL-2B-Q4_K_M` + `mmproj-Q8_0` | imagem vermelha → `"Vermelho"` | 91/4 | 956 ms |
+| LFM3-Audio-2B | `LFM3-Audio-2B-Q4_K_M` + `mmproj-Q8_0` | transcrição exata: `"Olá, mundo! Este é um teste de áudio."` | 60/14 | 1087 ms |
+| d1-2B ONNX | `decoder_q4.onnx` + `vision_encoder_q8` | `noul` texto, `D1NoulAnswer`, 0 tokens gerados | 38/0 | 769 ms |
+| d1-2B ONNX | idem, com imagem | `noul` visual com `image_features` | 46/0 | 1093 ms |
+
+Os três modelos LFM3 usam o mesmo caminho `llama.cpp b12088` + `libmtmd`:
+carregamento, ChatML, template de mídia, amostragem e EOS. O d1 usa o
+`onnxruntime_v2` e o contrato de slots/spans.
+
+## Nota sobre o d1 q4f16
+
+O `decoder_q4f16.onnx` oficial (o mais pequeno) **crasha no iOS Simulator**
+dentro do kernel `MlasQ8Int8GemmKernelNeon` do ONNX Runtime (SIGSEGV). O
+`decoder_q4.onnx` (1,74 GB) corre sem crash e é o bundle por omissão da app
+(`d1-2b-onnx-q4`). Em device físico o q4f16 pode funcionar; o fallback q4 é o
+caminho validado.
+
+## O que ainda não foi validado com pesos reais
+
+- **Vídeo no d1** (`video_features`): o processor temporal oficial não está
+  ligado; o motor devolve erro explícito. O LFM3-VL/Omni já recebe frames a
+  2 fps via `libmtmd`.
+- **Banda sonora de vídeo**: o canal nativo extrai frames, mas não o áudio do
+  vídeo; o LFM3-Omni com vídeo+áudio não foi exercitado.
+- **Android com pesos reais**: os gates reais só correram no iOS Simulator;
+  Android foi validado em build/APK, libs nativas e canal de hardware.
+- **Metal em device físico**: o simulador usa CPU; o gate Metal do llama.cpp
+  continua a ser o runbook do iPhone físico.
