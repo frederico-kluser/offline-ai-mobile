@@ -124,9 +124,8 @@ em [`docs/ct-scenarios.md`](docs/ct-scenarios.md).
   está ligado. O d1 de **texto** funciona com o contrato de slots/spans.
 - A extração de vídeo usa o canal nativo para frames a 2 fps; a banda sonora
   do vídeo ainda não é extraída no dispositivo (o LFM3-Omni precisa dela).
-- O espelho GitHub publica o manifesto/SHA-256 e a licença; os pesos são
-  servidos pelo Hugging Face oficial (ou pelo espelho, depois de correr
-  `tools/publish_lfm3_release.sh` numa ligação rápida).
+- O espelho GitHub publica **todos os GGUF/mmproj** e o manifesto/SHA-256;
+  os subgrafos ONNX do d1 são servidos pelo Hugging Face oficial.
 - Não há pesos no git: são sempre descarregados e verificados.
 
 ## Documentação
