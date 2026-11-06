@@ -71,7 +71,10 @@ TEMPO (`max_time`), nunca por passos.
 Segredos registados no scrubber e mascarados em tudo (tape, logs, pools,
 extrações): formas crua/URL-encoded/JSON/HTML-escaped → `{{nome}}`; senhas
 digitadas → `{{password_field}}`/`•••`; `STATE/accounts.jsonl`-equivalente
-nunca é copiado nem ingerido.
+nunca é copiado nem ingerido. A chave OpenRouter vive em cofre CIFRADO
+(Keychain iOS / Keystore AES-GCM Android; desktop: `openrouter.env` 0600) e é
+VALIDADA por `GET /api/v1/key` antes de ficar guardada — inválida nunca
+persiste; a UI mostra só a forma mascarada.
 
 ## 9. Handoff humano
 

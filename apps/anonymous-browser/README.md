@@ -38,6 +38,7 @@ limiares do Jev não transferem para o Laya).
 | `autopilot.OPS` (vocabulário fechado de operações) | `lib/src/domain/ops.dart` (10 ops: sem `CLOSE_TAB`/`CHECK_EMAIL`) |
 | `Autopilot.state()` + `ask_jev()` (payload tipado) | `lib/src/domain/decision_payload.dart` |
 | `llm.jev()` / `llm.chat_json` (OpenRouter) | `lib/src/backends/jev_online.dart`, `mimo_online.dart` |
+| `llm.py` KEY_FILE (`openrouter.env` 0600) | `lib/src/key_vault.dart` — cofre cifrado (Keychain iOS / Keystore AES-GCM Android) + **validação** em `GET /api/v1/key` antes de persistir |
 | `llm.clm_local()` (decisor local, contrato idêntico) | `lib/src/backends/laya_decision_backend.dart` |
 | `untrusted()` + `INJECT_PATTERNS` (firewall) | `lib/src/autopilot/untrusted.dart` — **PT+EN** (desktop só EN) |
 | `core.DESTRUCTIVE`/`RISKY_LABEL`/`BLOCK_RX` | `lib/src/autopilot/risk_lexicon.dart` |
