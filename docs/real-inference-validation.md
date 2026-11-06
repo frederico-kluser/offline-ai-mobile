@@ -34,12 +34,19 @@ o modelo pode ser pré-carregado com `adb push` para
 | LFM3-VL-2B | VL + mmproj, clipe 2 s | vídeo vermelho → `"Laranja"` (frames 2 fps via `libmtmd`) | 51/4 | 744 ms |
 | LFM3-Omni-2B | Omni + mmproj, clipe 2 s com tom | viu e ouviu: `"Um som de sinto de um sino."` | 83/10 | 1201 ms |
 | LFM3-Omni-2B | idem, **Android x86_64** | frames=4, samples=32322; `"Um som de sinto sem vídeo."` | 84/9 | 293 s* |
+| d1-2B ONNX | texto+imagem, 10 perguntas | todas as 10 primitivas devolvem resposta tipada (842 tokens) | 842/0 | 13 273 ms |
 | LFM3-1.7B | idem, **Android x86_64** | `"Olá! Como posso ajudar você hoje?"` | 37/10 | 137 s* |
 
 \* Emulador Android x86_64 sem dotprod/i8mm (CPU emulada): o tempo não é
 representativo de um telefone arm64. O objetivo foi validar o caminho
 `libllama.so`/`libmtmd.so` Android, que passou. O modelo foi pré-carregado
 via `adb push` para evitar o download lento do emulador.
+
+No gate das dez primitivas, `noul`, `choice` e `number` acertaram; `text`
+devolveu `"Silva"` (parcial), `date` não encontrou a data, `range` deu 33,1
+em vez de 42,5 e `box/boxes` não encontraram objeto numa imagem de cor sólida
+(sem objeto). Isto mede o decode real, não a qualidade do modelo; os valores
+de referência continuam nos testes sintéticos.
 
 Os três modelos LFM3 usam o mesmo caminho `llama.cpp b12088` + `libmtmd`:
 carregamento, ChatML, template de mídia, amostragem e EOS. O d1 usa o

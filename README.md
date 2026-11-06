@@ -130,8 +130,10 @@ LFM3-VL-2B `"Vermelho"` numa imagem vermelha; LFM3-Audio-2B transcreveu
 texto (38 tokens, 769 ms), com imagem (46 tokens, 1093 ms) e d1-Omni com
 áudio falado (70 tokens, 1668 ms). LFM3-VL-2B e d1-2B correram sobre vídeo a
 2 fps; o **LFM3-Omni-2B viu 4 frames e ouviu a banda sonora** (iOS 1201 ms;
-Android 293 s no emulador). O mesmo LFM3-1.7B também gerou texto no
-**Android x86_64** (emulador lento, 137 s).
+Android 293 s no emulador). O d1-2B devolveu **as dez primitivas tipadas**
+num só forward (842 tokens, 13,3 s; `noul`/`choice`/`number` certos, `text`
+parcial e `date`/`range`/`box` a mostrar os limites do modelo). O mesmo
+LFM3-1.7B também gerou texto no **Android x86_64** (emulador lento, 137 s).
 Detalhes e latências em
 [`docs/real-inference-validation.md`](docs/real-inference-validation.md).
 
