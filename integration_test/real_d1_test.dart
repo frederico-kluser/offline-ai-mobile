@@ -20,19 +20,20 @@ import 'package:offline_ai_mobile/src/engines/d1_onnx_engine.dart';
 
 const _hf = 'https://huggingface.co/LiquidAI/d1-2B-ONNX/resolve/main';
 
-Future<File> _download(String name, int bytes) async {
+Future<File> _download(String remote, int bytes) async {
+  final name = remote.split('/').last;
   final docs = await getApplicationDocumentsDirectory();
   final dir = Directory('${docs.path}/models-real-d1');
   await dir.create(recursive: true);
   final file = File('${dir.path}/$name');
   if (await file.exists() && await file.length() == bytes) return file;
   // ignore: avoid_print
-  print('D1 REAL: download $_hf/$name');
+  print('D1 REAL: download $_hf/$remote');
   final client = http.Client();
-  final res = await client.send(http.Request('GET', Uri.parse('$_hf/$name')));
+  final res = await client.send(http.Request('GET', Uri.parse('$_hf/$remote')));
   if (res.statusCode != 200) {
     client.close();
-    throw StateError('download HTTP ${res.statusCode} para $name');
+    throw StateError('download HTTP ${res.statusCode} para $remote');
   }
   await res.stream.pipe(file.openWrite());
   client.close();
@@ -50,10 +51,12 @@ void main() {
     'd1-2B ONNX decide noul sem gerar tokens',
     (tester) async {
       await tester.runAsync(() async {
-        final decoder = await _download('decoder_q4f16.onnx', 274492);
-        await _download('decoder_q4f16.onnx_data', 1567474688);
-        final vision = await _download('vision_encoder_fp16.onnx', 104940);
-        await _download('vision_encoder_fp16.onnx_data', 379021312);
+        final decoder =
+            await _download('onnx/decoder_q4f16.onnx', 274492);
+        await _download('onnx/decoder_q4f16.onnx_data', 1567474688);
+        final vision =
+            await _download('onnx/vision_encoder_fp16.onnx', 104940);
+        await _download('onnx/vision_encoder_fp16.onnx_data', 379021312);
         final tokenizer = await _download('tokenizer.json', 17908258);
         final processor = await _download('processor_config.json', 1254);
         await _download('config.json', 2903);
