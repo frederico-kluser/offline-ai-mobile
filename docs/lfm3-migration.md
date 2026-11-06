@@ -84,9 +84,10 @@ e no repo de modelos.
 
 ## 6. Limitações conhecidas
 
-- O pipeline ONNX de mídia do d1 exige o processor oficial; o d1 de texto
-  (incluindo spans com pointer) está implementado.
-- A banda sonora de vídeo ainda não é extraída no dispositivo; os frames a
-  2 fps são extraídos por canal nativo.
-- O espelho GitHub não tem os pesos completos (limite de tempo/banda); o
-  downloader usa o Hugging Face como fallback.
+- O d1 ONNX cobre texto, imagem, áudio (Omni) e vídeo (frames 2 fps); o
+  pointer de spans e o decode categórico estão testados com logits sintéticos
+  e gates reais.
+- A banda sonora de vídeo é extraída por `AVAssetReader` (iOS) e
+  `MediaCodec` (Android) para WAV 16 kHz; o LFM3-Omni vídeo+som foi validado.
+- O espelho GitHub publica todos os GGUF/mmproj; os subgrafos ONNX do d1 são
+  servidos pelo Hugging Face (a app faz fallback).

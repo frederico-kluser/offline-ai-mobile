@@ -128,9 +128,10 @@ Resultados (2026-11-06): LFM3-1.7B `"Olá! Como posso ajudar você hoje?"`;
 LFM3-VL-2B `"Vermelho"` numa imagem vermelha; LFM3-Audio-2B transcreveu
 `"Olá, mundo! Este é um teste de áudio."`; d1-2B ONNX respondeu a `noul` de
 texto (38 tokens, 769 ms), com imagem (46 tokens, 1093 ms) e d1-Omni com
-áudio falado (70 tokens, 1668 ms); LFM3-VL-2B e d1-2B também correram sobre
-vídeo a 2 fps. O mesmo LFM3-1.7B também gerou texto no **Android x86_64**
-(emulador lento, 137 s).
+áudio falado (70 tokens, 1668 ms). LFM3-VL-2B e d1-2B correram sobre vídeo a
+2 fps; o **LFM3-Omni-2B viu 4 frames e ouviu a banda sonora** (iOS 1201 ms;
+Android 293 s no emulador). O mesmo LFM3-1.7B também gerou texto no
+**Android x86_64** (emulador lento, 137 s).
 Detalhes e latências em
 [`docs/real-inference-validation.md`](docs/real-inference-validation.md).
 
@@ -140,9 +141,10 @@ Detalhes e latências em
   (`audio_features`, d1-Omni) e vídeo (frames a 2 fps → `video_features`)**.
   O d1 de texto cobre slots/spans; a validação real cobriu texto, imagem,
   áudio e vídeo.
-- A extração de vídeo usa o canal nativo para frames a 2 fps; a **banda sonora
-  do vídeo** ainda não é extraída no dispositivo (o LFM3-Omni video+áudio e o
-  d1-Omni com banda sonora não foram exercitados).
+- A extração de vídeo usa o canal nativo para frames a 2 fps **e banda sonora
+  WAV 16 kHz** (AVAssetReader no iOS, MediaCodec no Android); o LFM3-Omni
+  vídeo+som foi validado nos dois sistemas. O d1 usa os frames para
+  `video_features`; a banda sonora não entra no d1.
 - O espelho GitHub publica **todos os GGUF/mmproj** e o manifesto/SHA-256;
   os subgrafos ONNX do d1 são servidos pelo Hugging Face oficial.
 - Não há pesos no git: são sempre descarregados e verificados.

@@ -32,6 +32,8 @@ o modelo pode ser pré-carregado com `adb push` para
 | d1-Omni ONNX | `decoder_q4` + `audio_encoder_fp16` | `noul` falado com `audio_features` | 70/0 | 1668 ms |
 | d1-2B ONNX | `decoder_q4` + `vision_q8`, clipe 2 s | `noul` visual com `video_features` (frames 2 fps) | 50/0 | 1557 ms |
 | LFM3-VL-2B | VL + mmproj, clipe 2 s | vídeo vermelho → `"Laranja"` (frames 2 fps via `libmtmd`) | 51/4 | 744 ms |
+| LFM3-Omni-2B | Omni + mmproj, clipe 2 s com tom | viu e ouviu: `"Um som de sinto de um sino."` | 83/10 | 1201 ms |
+| LFM3-Omni-2B | idem, **Android x86_64** | frames=4, samples=32322; `"Um som de sinto sem vídeo."` | 84/9 | 293 s* |
 | LFM3-1.7B | idem, **Android x86_64** | `"Olá! Como posso ajudar você hoje?"` | 37/10 | 137 s* |
 
 \* Emulador Android x86_64 sem dotprod/i8mm (CPU emulada): o tempo não é
@@ -53,9 +55,10 @@ caminho validado.
 
 ## O que ainda não foi validado com pesos reais
 
-- **Banda sonora de vídeo**: o canal nativo extrai frames a 2 fps (usados
-  pelo d1 e pelo `libmtmd`), mas não o áudio do vídeo; o LFM3-Omni com
-  vídeo+áudio e o d1-Omni com banda sonora não foram exercitados.
+- **Banda sonora de vídeo**: extraída no iOS (`AVAssetReader`, 2 s → 31 983
+  amostras a 16 kHz) e no Android (`MediaCodec`, 32 322 amostras); o
+  LFM3-Omni viu os 4 frames e ouviu o tom. O **d1** usa só os frames;
+  a banda sonora não entra no d1.
 - **d1-Omni imagem/vídeo**: o gate real do d1-Omni cobriu áudio; imagem e
   vídeo foram validados no d1-2B (mesmo `vision_encoder`).
 - **Android com pesos reais**: o texto LFM3-1.7B correu no emulador x86_64

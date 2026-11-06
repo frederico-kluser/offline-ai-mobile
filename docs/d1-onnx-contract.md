@@ -143,6 +143,6 @@ span   = melhor (start,end) com end-start < 512 (texto) / 32 (number/date)
   `d1_audio.dart` gera o log-mel oficial `[1,128,frames]` (FFT 400,
   hop 160, 128 mel Slaney, `(log10+4)/4`) e o decoder recebe
   `image_features`/`video_features`/`audio_features`.
-- A **banda sonora de vídeo** não é extraída no dispositivo; o
-  `video_features` cobre só a imagem em movimento.
+- O `video_features` do d1 cobre só a imagem em movimento; a banda sonora é
+  extraída pelo canal nativo para o LFM3-Omni, não para o d1.
 - A via GGUF do llama.cpp só faz `noul`/`choice`/`score`.
