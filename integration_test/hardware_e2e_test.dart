@@ -1,6 +1,6 @@
 /// E2E do canal nativo de hardware (Kotlin/Swift) num dispositivo real.
 ///
-///   flutter test integration_test/hardware_e2e_test.dart -d <device>
+///   `flutter test integration_test/hardware_e2e_test.dart -d <device>`
 library;
 
 import 'package:flutter_test/flutter_test.dart';

@@ -1,6 +1,6 @@
 /// E2E de arranque da app sem modelos: shell, 5 destinos e navegação.
 ///
-///   flutter test integration_test/app_e2e_test.dart -d <device>
+///   `flutter test integration_test/app_e2e_test.dart -d <device>`
 library;
 
 import 'package:flutter/material.dart';
