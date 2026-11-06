@@ -4,6 +4,11 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- O Metal/Impeller do simulador iOS é incompleto e pinta a janela de
+	     branco; o simulador usa Skia. Em device físico o Metal do llama.cpp
+	     continua ativo para inferência. -->
+	<key>FLTEnableImpeller</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
