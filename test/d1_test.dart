@@ -26,6 +26,10 @@ Map<String, dynamic> tinyTokenizerJson() => {
           '0': 11,
           '1': 12,
           '2': 13,
+          '<|vision_start|>': 14,
+          '<|vision_end|>': 15,
+          '<|image|>': 16,
+          '<|audio|>': 17,
         },
         'merges': <dynamic>[],
         'unk_token': 'hello',
@@ -37,6 +41,10 @@ Map<String, dynamic> tinyTokenizerJson() => {
         {'id': 3, 'content': '<|startoftext|>', 'special': true},
         {'id': 4, 'content': '<|im_start|>', 'special': true},
         {'id': 5, 'content': '<|im_end|>', 'special': true},
+        {'id': 14, 'content': '<|vision_start|>', 'special': true},
+        {'id': 15, 'content': '<|vision_end|>', 'special': true},
+        {'id': 16, 'content': '<|image|>', 'special': true},
+        {'id': 17, 'content': '<|audio|>', 'special': true},
       ],
     };
 
@@ -147,6 +155,35 @@ void main() {
       expect(p.stateTokenPositions, contains(0));
     });
   });
+
+    test('mídia expande um marcador por token de feature', () {
+      final tok = D1Tokenizer.fromJson(tinyTokenizerJson());
+      final p = D1PromptBuilder(
+        tokenizer: tok,
+        mediaTokenCounts: const [4, 2],
+      ).build(D1Request(
+        state: 'hello',
+        media: const [
+          D1Media(kind: D1MediaKind.image, path: '/tmp/a.png'),
+          D1Media(kind: D1MediaKind.audio, path: '/tmp/a.wav'),
+        ],
+        questions: const [
+          D1NoulQuestion(id: 'q', instructions: 'sim?'),
+        ],
+      ));
+      expect(
+        p.text,
+        contains('<|vision_start|>'
+            '<|image|><|image|><|image|><|image|>'
+            '<|vision_end|>'),
+      );
+      expect(
+        p.text,
+        contains('<|vision_start|><|audio|><|audio|><|vision_end|>'),
+      );
+      expect(p.inputIds.where((id) => id == 16).length, 4);
+      expect(p.inputIds.where((id) => id == 17).length, 2);
+    });
 
   group('D1OutputDecoder', () {
     const decoder = D1OutputDecoder();
