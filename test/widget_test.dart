@@ -175,7 +175,7 @@ void main() {
     final text = modelById('lfm3-1.7b-q4_0')!;
     expect(text.mainFilename, 'LFM3-1.7B-QAD-Q4_0.gguf');
     expect(text.files.first.sha256, startsWith('43a7d09a'));
-    final d1 = modelById('d1-2b-onnx-q4f16')!;
+    final d1 = modelById('d1-2b-onnx-q4')!;
     expect(d1.isOnnx, isTrue);
     expect(d1.supportsVision, isTrue);
   });
